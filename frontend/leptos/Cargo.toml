@@ -1,0 +1,21 @@
+[package]
+name = "todo-frontend-leptos"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+console_error_panic_hook = "0.1.7"
+# 0.6, the version Leptos itself uses, so the bundle carries one copy.
+gloo-net = { version = "0.6.0", default-features = false, features = ["http", "json"] }
+leptos = { version = "0.8.22", features = ["csr"] }
+leptos-fetch = "0.4.10"
+leptos_router = "0.8.17"
+serde.workspace = true
+todo-contract.workspace = true
+uuid.workspace = true
+
+# Used by the Rust/UI components copied into src/components/ui/.
+icons = { version = "0.19.0", features = ["leptos"] }
+leptos_ui = "0.3.22"
+strum = { version = "0.28.0", features = ["derive"] }
+tw_merge = { version = "0.1.22", features = ["variant"] }

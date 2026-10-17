@@ -1,8 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["contract", "backend/axum", "frontend/dioxus", "fullstack/topcoat"]
-# `cargo build` and `cargo test` cover the server. The frontend targets
-# wasm and is built with the Dioxus CLI: `dx serve -p todo-frontend`.
+members = ["contract", "backend/axum", "frontend/dioxus", "frontend/leptos", "fullstack/topcoat"]
+# `cargo build` and `cargo test` cover the server. The frontends target
+# wasm and are built with their own tools: the Dioxus CLI
+# (`dx serve -p todo-frontend`) and Trunk (`trunk serve` in frontend/leptos).
 default-members = ["contract", "backend/axum", "fullstack/topcoat"]
 
 [workspace.package]
@@ -19,3 +20,13 @@ uuid = { version = "1.28.0", features = ["serde"] }
 # server, wasm-opt (run by dx) for the web client.
 [profile.release]
 lto = "thin"
+
+# The Leptos web client's release build (Trunk picks it through
+# data-cargo-profile-release in frontend/leptos/index.html): smallest code over
+# fastest, since the whole binary is downloaded before the page works.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

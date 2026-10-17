@@ -1,0 +1,13 @@
+# Run Trunk from this folder: `cd frontend/leptos && trunk serve`.
+
+[build]
+target = "index.html"
+dist = "dist"
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8082
+
+[tools]
+# The standalone Tailwind CLI that Trunk downloads; no Node needed.
+tailwindcss = "4.3.3"

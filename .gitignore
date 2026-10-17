@@ -1,7 +1,7 @@
-/target
-/dist
-/data
-/config.yaml
+**/target
+**/dist
+**/data
+**/config.yaml
 *.db
 *.db-wal
 *.db-shm

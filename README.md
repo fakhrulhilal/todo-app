@@ -11,6 +11,7 @@ implementation, in a folder beside `backend/` and `frontend/`.
 | `contract/`        | The todo model and validation, compiled by both sides                                                            | serde      |
 | `backend/axum/`    | The JSON API server with Swagger docs, shipped as a container image                                              | [axum](https://github.com/tokio-rs/axum) |
 | `frontend/dioxus/` | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
+| `frontend/leptos/` | The same web client, styled with Tailwind CSS and [Rust/UI](https://www.rust-ui.com) components, with API data cached by [leptos-fetch](https://github.com/zakstucke/leptos-fetch). See its [README](frontend/leptos/README.md) | [Leptos](https://leptos.dev) |
 | `fullstack/topcoat/` | Server-rendered page in one binary, with no JSON API: the list is a Topcoat shard and the actions are procedures. See its [README](fullstack/topcoat/README.md) | [Topcoat](https://github.com/tokio-rs/topcoat) |
 
 ```text
@@ -39,12 +40,17 @@ the repository root, and pick the part with `-p <package>`:
 | `contract/`        | `todo-contract` |
 | `backend/axum/`    | `todo-backend`  |
 | `frontend/dioxus/` | `todo-frontend` |
+| `frontend/leptos/` | `todo-frontend-leptos` |
 | `fullstack/topcoat/` | `todo-fullstack` |
 
 ```sh
 cargo run -p todo-backend                    # the backend, on http://127.0.0.1:8080
 dx serve -p todo-frontend --port 8081        # the frontend, on http://127.0.0.1:8081
+(cd frontend/leptos && trunk serve)          # the Leptos frontend, on http://127.0.0.1:8082
 ```
+
+The Leptos frontend needs [Trunk](https://trunkrs.dev) instead of `dx`; Trunk
+runs from the frontend's folder, where its `Trunk.toml` is.
 
 Todos are stored in `data/todo.db`, relative to where the backend is started
 (the repository root). SQLite is for local work only; containers use
@@ -60,6 +66,7 @@ If port 8080 is taken, move the API and tell the client:
 ```sh
 cargo run -p todo-backend -- --server-port 8090
 TODO_API_URL=http://127.0.0.1:8090 dx serve -p todo-frontend --port 8081
+(cd frontend/leptos && TODO_API_URL=http://127.0.0.1:8090 trunk serve)
 ```
 
 ## Build
@@ -130,6 +137,40 @@ To ship it as a container instead, see
 
 The first `dx` build is slow: it compiles every dependency for WebAssembly,
 and `dx` may make rustup download the nightly toolchain.
+
+### Frontend (`frontend/leptos/`)
+
+1. Add the WebAssembly target:
+
+   ```sh
+   rustup target add wasm32-unknown-unknown
+   ```
+
+2. Install [Trunk](https://trunkrs.dev):
+
+   ```sh
+   cargo install trunk --version 0.21.14 --locked
+   # or, without compiling it: cargo binstall trunk@0.21.14
+   ```
+
+   Nothing else: Trunk downloads the Tailwind CSS CLI, `wasm-bindgen` and
+   `wasm-opt` on the first build. Node is not needed.
+
+3. Build the site, giving it the address of the API:
+
+   ```sh
+   cd frontend/leptos
+   TODO_API_URL=https://todo-api.example.com trunk build --release
+   ```
+
+   The release build uses the `wasm-release` profile from the root
+   `Cargo.toml`, which optimises for size.
+
+4. The result is the static site in `frontend/leptos/dist`: `index.html`, the
+   stylesheet and the WebAssembly. Copy it to any static host, and have the
+   host serve `index.html` for unknown paths.
+
+The site expects to be served from the root of its domain.
 
 ## Database
 
@@ -243,12 +284,14 @@ one PostgreSQL database:
   `/swagger-ui` and `/health` on to the API. The browser sees a single site, so
   CORS is not involved.
 - **Topcoat**, on <http://localhost:8081>: the server-rendered app.
+- **Leptos + axum**, on <http://localhost:8083>: the Leptos client, set up
+  like the Dioxus one, against the same API.
 
 ```sh
 docker compose up -d
 ```
 
-That is the only step. The first run builds the three images, which takes a
+That is the only step. The first run builds the four images, which takes a
 few minutes; later runs start at once. After changing the code, rebuild with
 `docker compose up -d --build`.
 
@@ -257,6 +300,8 @@ The images are built from
   compiled with an empty `TODO_API_URL` so that it calls the address it was
   loaded from, and served by Caddy. Caddy's configuration is inside
   `compose.yaml`.
+- [`frontend/leptos/Dockerfile`](frontend/leptos/Dockerfile): the Leptos
+  client, built the same way with Trunk.
 - [`backend/axum/Dockerfile`](backend/axum/Dockerfile): the API.
 - [`fullstack/topcoat/Dockerfile`](fullstack/topcoat/Dockerfile): the
   fullstack app.
@@ -268,6 +313,7 @@ one app shows up in the other. See [Database](#database).
 |---------------------|-----------------------------------------|---------|
 | `TODO_WEB_PORT`     | Port the Dioxus site is published on    | `8080`  |
 | `TODO_TOPCOAT_PORT` | Port the Topcoat app is published on    | `8081`  |
+| `TODO_LEPTOS_PORT`  | Port the Leptos site is published on    | `8083`  |
 | `TODO_DB_PASSWORD`  | Password of the PostgreSQL user         | `todo`  |
 
 Todos are kept in the `db-data` volume; `docker compose down -v` deletes them.
@@ -514,6 +560,10 @@ frontend/
     src/main.rs        routes and components
     src/api_client.rs  calls to the JSON API
     assets/            stylesheet
+    Dockerfile         image of the frontend, served by Caddy
+  leptos/              the same web client in Leptos (see its README)
+    src/components/ui/ Rust/UI components, copied into the repository
+    tailwind.css       Tailwind entry point and theme
     Dockerfile         image of the frontend, served by Caddy
 fullstack/
   topcoat/             server-rendered page in one service (see its README)

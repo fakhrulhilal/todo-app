@@ -25,6 +25,30 @@ services:
       dev.orbstack.domains: dx.todo.local,todo.local
       dev.orbstack.icon: https://dioxuslabs.com/assets/favicon-dxhabbedd29055fcd0.png
 
+  frontend-leptos:
+    image: todo/frontend/leptos:latest
+    container_name: todo.leptos
+    build:
+      context: .
+      dockerfile: frontend/leptos/Dockerfile
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    ports:
+      - "${TODO_LEPTOS_PORT:-8083}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    depends_on:
+      backend-axum:
+        condition: service_healthy
+    restart: unless-stopped
+    labels:
+      dev.orbstack.domains: leptos.todo.local
+      dev.orbstack.icon: https://raw.githubusercontent.com/leptos-rs/leptos/main/docs/logos/Leptos_logo_abbreviation__square_RGB.png
+
   backend-axum:
     image: todo/backend/axum:latest
     container_name: todo.axum

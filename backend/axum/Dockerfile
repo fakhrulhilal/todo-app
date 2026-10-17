@@ -24,25 +24,25 @@ RUN xx-apk add --no-cache musl-dev gcc
 
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
-COPY shared shared
-COPY api api
+COPY contract contract
+COPY backend/axum backend/axum
 # Not built here, but Cargo needs every workspace member to be present.
-COPY web/Cargo.toml web/Cargo.toml
-COPY web/src web/src
+COPY frontend/dioxus/Cargo.toml frontend/dioxus/Cargo.toml
+COPY frontend/dioxus/src frontend/dioxus/src
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/src/target,id=todo-dx-target-${TARGETPLATFORM},sharing=locked \
     CARGO_PROFILE_RELEASE_STRIP=true \
-    xx-cargo build --release --locked --package todo-api \
+    xx-cargo build --release --locked --package todo-backend \
     && mkdir -p /out/data \
-    && cp "target/$(xx-cargo --print-target-triple)/release/todo-api" /out/todo-api \
-    && xx-verify --static /out/todo-api
+    && cp "target/$(xx-cargo --print-target-triple)/release/todo-backend" /out/todo-backend \
+    && xx-verify --static /out/todo-backend
 
 # Nothing but the static binaries: no shell, no libc, no package manager.
 FROM scratch
 COPY --from=tiny-hc /bin/tiny-hc /bin/tiny-hc
-COPY --from=build /out/todo-api /bin/todo-api
+COPY --from=build /out/todo-backend /bin/todo-backend
 # The SQLite database lives here; an empty volume inherits this ownership.
 COPY --from=build --chown=10001:10001 /out/data /data
 
@@ -60,4 +60,4 @@ VOLUME /data
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
     CMD ["/bin/tiny-hc", "http://127.0.0.1:8080/health/ready"]
 
-ENTRYPOINT ["/bin/todo-api"]
+ENTRYPOINT ["/bin/todo-backend"]

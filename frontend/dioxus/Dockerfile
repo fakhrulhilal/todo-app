@@ -16,11 +16,11 @@ RUN rustup target add wasm32-unknown-unknown \
 
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
-COPY shared shared
-COPY web web
+COPY contract contract
+COPY frontend/dioxus frontend/dioxus
 # Not built here, but Cargo needs every workspace member to be present.
-COPY api/Cargo.toml api/Cargo.toml
-COPY api/src api/src
+COPY backend/axum/Cargo.toml backend/axum/Cargo.toml
+COPY backend/axum/src backend/axum/src
 
 # Where the client finds the API. Empty: at the address the site itself is
 # served from, where Caddy passes API calls on.
@@ -28,7 +28,7 @@ ARG TODO_API_URL=""
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/src/target,id=todo-dx-web-target,sharing=locked \
-    dx bundle --package todo-web --platform web --release --out-dir /out
+    dx bundle --package todo-frontend --platform web --release --out-dir /out
 
 FROM caddy:2-alpine
 COPY --from=build /out/public /srv

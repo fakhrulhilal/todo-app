@@ -1,36 +1,48 @@
 # todo-dx
 
-A todo list in Rust, in two parts that are deployed separately:
+A todo list in Rust, split into three parts. The **contract** is what the
+other two agree on; each implementation is named after its framework, so
+other Rust projects of the same app can sit next to it and share the contract.
 
-- **`web/`**: the web client, written with [Dioxus](https://dioxuslabs.com).
-  It compiles to WebAssembly and static files, so it can be hosted on GitHub
-  Pages or any other static host.
-- **`api/`**: the JSON API server with Swagger docs, shipped as a container
-  image.
+| Folder             | What                                                                                                             | Built with |
+|--------------------|------------------------------------------------------------------------------------------------------------------|------------|
+| `contract/`        | The todo model and validation, compiled by both sides                                                            | serde      |
+| `backend/axum/`    | The JSON API server with Swagger docs, shipped as a container image                                              | [axum](https://github.com/tokio-rs/axum) |
+| `frontend/dioxus/` | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
 
 ```text
 browser ──▶ GitHub Pages            static files (HTML, CSS, WASM), loaded once
-browser ──▶ /api/v1/todos (JSON) ──▶ API server ──▶ database
+browser ──▶ /api/v1/todos (JSON) ──▶ backend ──▶ database
 ```
 
-The client has no server of its own. Adding, completing, renaming, deleting
+The frontend has no server of its own. Adding, completing, renaming, deleting
 and filtering are calls to the JSON API, and the page is updated in place.
-`shared/` holds the todo model, which both sides compile against.
-
-This is todo-rs with its server-rendered page and hand-written
-JavaScript replaced by the Dioxus client.
+The HTTP API itself is described by the OpenAPI document at
+`/api/openapi.json`, so a second backend or frontend only has to follow it and
+reuse `contract/` where it is also written in Rust.
 
 ## Run locally
 
 Needs the [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/)
 (`dx`), the same version as the `dioxus` crate.
 
+The repository is one Cargo workspace. Run every command in this README from
+the repository root, and pick the part with `-p <package>`:
+
+| Folder             | Package         |
+|--------------------|-----------------|
+| `contract/`        | `todo-contract` |
+| `backend/axum/`    | `todo-backend`  |
+| `frontend/dioxus/` | `todo-frontend` |
+
 ```sh
-cargo run                               # the API, on http://127.0.0.1:8080
-dx serve -p todo-web --port 8081        # the web client, on http://127.0.0.1:8081
+cargo run -p todo-backend                    # the backend, on http://127.0.0.1:8080
+dx serve -p todo-frontend --port 8081        # the frontend, on http://127.0.0.1:8081
 ```
 
-Todos are stored in `data/todo.db`. `cargo test` runs the API tests.
+Todos are stored in `data/todo.db`, relative to where the backend is started
+(the repository root). `cargo test` runs the contract and backend tests; the
+frontend only builds for WebAssembly, so Cargo skips it unless asked.
 
 The client is told where the API is when it is built, through `TODO_API_URL`.
 Without it, it calls `http://127.0.0.1:8080`. Set to nothing
@@ -39,40 +51,41 @@ Without it, it calls `http://127.0.0.1:8080`. Set to nothing
 If port 8080 is taken, move the API and tell the client:
 
 ```sh
-cargo run -- --server-port 8090
-TODO_API_URL=http://127.0.0.1:8090 dx serve -p todo-web --port 8081
+cargo run -p todo-backend -- --server-port 8090
+TODO_API_URL=http://127.0.0.1:8090 dx serve -p todo-frontend --port 8081
 ```
 
 ## Build
 
-The two parts are built separately, with different tools.
+The two parts are built separately, with different tools, both from the
+repository root.
 
-### Backend (`api/`)
+### Backend (`backend/axum/`)
 
 1. Install [Rust](https://rustup.rs).
 2. Run the tests:
 
    ```sh
-   cargo test
+   cargo test -p todo-backend
    ```
 
 3. Build the release binary:
 
    ```sh
-   cargo build --release
+   cargo build --release -p todo-backend
    ```
 
-4. The result is one executable, `target/release/todo-api`, with the default
+4. The result is one executable, `target/release/todo-backend`, with the default
    configuration and the database migrations compiled in. Run it:
 
    ```sh
-   ./target/release/todo-api --server-host 0.0.0.0 --server-port 8080
+   ./target/release/todo-backend --server-host 0.0.0.0 --server-port 8080
    ```
 
 To ship it as a container instead, see
 [API container image](#api-container-image).
 
-### Frontend (`web/`)
+### Frontend (`frontend/dioxus/`)
 
 1. Add the WebAssembly target:
 
@@ -91,7 +104,7 @@ To ship it as a container instead, see
 
    ```sh
    TODO_API_URL=https://todo-api.example.com \
-     dx bundle -p todo-web --platform web --release --out-dir dist
+     dx bundle -p todo-frontend --platform web --release --out-dir dist
    ```
 
    If the site will not be served from the root of its domain, add
@@ -114,7 +127,7 @@ and `dx` may make rustup download the nightly toolchain.
 ## Run everything with Docker Compose
 
 [`compose.yaml`](compose.yaml) runs the whole app on one address:
-[Caddy](https://caddyserver.com) serves the web client and passes `/api`,
+[Caddy](https://caddyserver.com) serves the frontend and passes `/api`,
 `/swagger-ui` and `/health` on to the API, which stores todos in PostgreSQL.
 The browser sees a single site, so CORS is not involved.
 
@@ -126,10 +139,10 @@ That is the only step. The first run builds the two images, which takes a
 few minutes; later runs start at once. After changing the code, rebuild with
 `docker compose up -d --build`.
 
-The images are built from [`frontend.Dockerfile`](frontend.Dockerfile)
+The images are built from [`frontend/dioxus/Dockerfile`](frontend/dioxus/Dockerfile)
 (the client, compiled with an empty `TODO_API_URL` so that it calls the
 address it was loaded from, and served by Caddy) and
-[`backend.Dockerfile`](backend.Dockerfile) (the API). Caddy's configuration
+[`backend/axum/Dockerfile`](backend/axum/Dockerfile) (the API). Caddy's configuration
 is inside `compose.yaml`.
 
 | Variable           | What                            | Default |
@@ -143,7 +156,7 @@ Compose builds the images for the machine it runs on. Images to publish are
 built for both platforms with `docker buildx bake`
 (see [API container image](#api-container-image)).
 
-## Deploy the web client to GitHub Pages
+## Deploy the frontend to GitHub Pages
 
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) builds and
 publishes the client on every push to `main`. Set up the repository once:
@@ -163,7 +176,7 @@ The workflow handles the two things Pages needs from a single-page app:
 - `index.html` is copied to `404.html`, so unknown paths are rendered by the
   app instead of GitHub's error page.
 
-To build the same files by hand, follow the [frontend build](#frontend-web)
+To build the same files by hand, follow the [frontend build](#frontend-frontenddioxus)
 steps with `--base-path <repository>`.
 
 ## API
@@ -245,7 +258,7 @@ curl 'localhost:8080/health/ready?format=json'
 }
 ```
 
-Checks are registered in [`api/src/api.rs`](api/src/api.rs). To add one,
+Checks are registered in [`backend/axum/src/api.rs`](backend/axum/src/api.rs). To add one,
 implement `HealthCheck` and register it by name. A check registered with
 `add_with_failure_status(..., HealthStatus::Degraded, ...)` degrades the
 service when it fails instead of making it unhealthy.
@@ -255,7 +268,7 @@ service when it fails instead of making it unhealthy.
 Settings are read from four sources and merged, in the manner of .NET's
 options pattern. Later ones win:
 
-1. Built-in defaults: [`api/config/default.yaml`](api/config/default.yaml)
+1. Built-in defaults: [`backend/axum/config/default.yaml`](backend/axum/config/default.yaml)
 2. A YAML file: `config.yaml` in the working directory if there is one, or the
    file named by `--config` / `CONFIG`, which must exist
 3. Environment variables
@@ -287,17 +300,17 @@ server:
 ```
 
 ```sh
-SERVER__PORT=9000 todo-api
-todo-api --server-port 9000
+SERVER__PORT=9000 todo-backend
+todo-backend --server-port 9000
 ```
 
-`todo-api --help` lists the arguments. A value of the wrong type stops the
+`todo-backend --help` lists the arguments. A value of the wrong type stops the
 server at startup with a message that names the setting and where the value
 came from.
 
 `server.cors_origins` names the sites whose pages may call the API from a
 browser, separated by commas. The default `*` allows any site, which suits
-local work; in production, name the site that hosts the web client.
+local work; in production, name the site that hosts the frontend.
 
 | Database URL                     | Storage                                                        |
 |----------------------------------|----------------------------------------------------------------|
@@ -307,7 +320,7 @@ local work; in production, name the site that hosts the web client.
 | `postgres://user:pass@host/db`   | PostgreSQL                                                     |
 
 The schema is created and migrated on startup, from
-[`api/migrations/`](api/migrations).
+[`backend/axum/migrations/`](backend/axum/migrations).
 
 `log.format` is `text` (plain text), `json` (one JSON object per line) or
 `auto`, which picks text when `env` is `local` and JSON when it is
@@ -355,19 +368,25 @@ unhealthy while its database is unreachable. If you change
 ## Layout
 
 ```text
-shared/          the todo model and validation, used by both sides
-web/             the Dioxus web client
-  src/main.rs    routes and components
-  src/api.rs     calls to the JSON API
-  assets/        stylesheet
-api/             the JSON API server
-  src/           configuration, logging, storage backends, API and OpenAPI
-  config/        default configuration
-  migrations/    SQL per database
-  tests/api/     end-to-end tests against an in-memory database,
-                 one file per source file they cover
-frontend.Dockerfile  image of the web client, served by Caddy
-backend.Dockerfile   image of the API
-docker-bake.hcl      the multi-platform build of the API image
-compose.yaml         Caddy (web client) + API + PostgreSQL
+contract/              the todo model and validation, used by every implementation
+backend/
+  axum/                the JSON API server
+    src/               configuration, logging, storage backends, API and OpenAPI
+    config/            default configuration
+    migrations/        SQL per database
+    tests/api/         end-to-end tests against an in-memory database,
+                       one file per source file they cover
+    Dockerfile         image of the backend
+frontend/
+  dioxus/              the web client
+    src/main.rs        routes and components
+    src/api_client.rs  calls to the JSON API
+    assets/            stylesheet
+    Dockerfile         image of the frontend, served by Caddy
+docker-bake.hcl        the multi-platform build of the backend image
+compose.yaml           Caddy (frontend) + backend + PostgreSQL
 ```
+
+A new implementation goes next to the existing one, for example
+`backend/<framework>/` with its own `Dockerfile`, and joins the
+workspace in the root `Cargo.toml`.

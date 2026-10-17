@@ -26,6 +26,6 @@ target "docker-metadata-action" {
 target "api" {
   inherits   = ["docker-metadata-action"]
   context    = "."
-  dockerfile = "backend.Dockerfile"
+  dockerfile = "backend/axum/Dockerfile"
   platforms  = ["linux/amd64", "linux/arm64"]
 }

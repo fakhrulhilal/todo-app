@@ -8,8 +8,8 @@ on:
   push:
     branches: [main]
     paths:
-      - web/**
-      - shared/**
+      - frontend/dioxus/**
+      - contract/**
       - Cargo.toml
       - Cargo.lock
       - .github/workflows/pages.yml
@@ -56,7 +56,7 @@ jobs:
           # "/<repository>" for a project site, empty for a user site or a custom domain.
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
         run: |
-          args=(--package todo-web --platform web --release --out-dir dist)
+          args=(--package todo-frontend --platform web --release --out-dir dist)
           if [ -n "${BASE_PATH#/}" ]; then
             args+=(--base-path "${BASE_PATH#/}")
           fi

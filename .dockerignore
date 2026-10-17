@@ -1,9 +1,22 @@
-*
-!Cargo.toml
-!Cargo.lock
-!shared
-!api
-!web/Cargo.toml
-!web/Dioxus.toml
-!web/src
-!web/assets
+# Build outputs and local state
+target
+dist
+data
+config.yaml
+*.db
+*.db-wal
+*.db-shm
+.env
+
+# Repository and tooling
+.git
+.github
+.gitignore
+.dockerignore
+.DS_Store
+
+# Not needed to build any image
+*.md
+bench.sh
+docker-bake.hcl
+compose.yaml

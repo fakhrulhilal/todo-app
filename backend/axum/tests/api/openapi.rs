@@ -1,5 +1,7 @@
 //! `src/api.rs`: the OpenAPI document, Swagger UI and the root redirect.
 
+use std::{fs, path::Path};
+
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 
@@ -46,4 +48,28 @@ async fn root_leads_to_the_api_docs() {
     let root = client.get(&base_url).send().await.unwrap();
     assert_eq!(root.status(), StatusCode::TEMPORARY_REDIRECT);
     assert_eq!(root.headers()["location"], "/swagger-ui");
+}
+
+/// The document is the contract other implementations are written against, so
+/// `cargo test` keeps a copy of what this backend serves in `contract/`.
+/// Commit it when it changes.
+#[tokio::test]
+async fn openapi_document_is_written_to_the_contract() {
+    let base_url = spawn_app().await;
+
+    let document: Value = Client::new()
+        .get(format!("{base_url}/api/openapi.json"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let mut json = serde_json::to_string_pretty(&document).unwrap();
+    json.push('\n');
+
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contract/openapi.json");
+    if fs::read_to_string(&path).ok().as_deref() != Some(json.as_str()) {
+        fs::write(&path, json).unwrap();
+    }
 }

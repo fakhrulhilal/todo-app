@@ -1,5 +1,5 @@
-//! The todo list's JSON API, with Swagger docs. The web client is a separate
-//! static site (`web/`) that calls this API from the browser.
+//! The todo list's JSON API, with Swagger docs. The frontend is a separate
+//! static site (`frontend/dioxus/`) that calls this API from the browser.
 
 pub mod api;
 pub mod cli;

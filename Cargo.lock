@@ -4535,7 +4535,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
-name = "todo-api"
+name = "todo-backend"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -4549,7 +4549,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror 2.0.21",
- "todo-shared",
+ "todo-contract",
  "tokio",
  "tower-http 0.7.1",
  "tracing",
@@ -4562,7 +4562,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "todo-shared"
+name = "todo-contract"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -4572,13 +4572,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "todo-web"
+name = "todo-frontend"
 version = "0.1.0"
 dependencies = [
  "dioxus",
  "gloo-net 0.7.0",
  "serde",
- "todo-shared",
+ "todo-contract",
  "uuid",
 ]
 

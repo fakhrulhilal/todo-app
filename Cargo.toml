@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["shared", "api", "web"]
-# `cargo build` and `cargo test` cover the server. The web client targets
-# wasm and is built with the Dioxus CLI: `dx serve -p todo-web`.
-default-members = ["shared", "api"]
+members = ["contract", "backend/axum", "frontend/dioxus"]
+# `cargo build` and `cargo test` cover the server. The frontend targets
+# wasm and is built with the Dioxus CLI: `dx serve -p todo-frontend`.
+default-members = ["contract", "backend/axum"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,10 +12,10 @@ edition = "2024"
 [workspace.dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["std", "serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
-todo-shared = { path = "shared" }
+todo-contract = { path = "contract" }
 uuid = { version = "1.28.0", features = ["serde"] }
 
-# Symbols are stripped by whatever packages the result: backend.Dockerfile for the
+# Symbols are stripped by whatever packages the result: backend/axum/Dockerfile for the
 # server, wasm-opt (run by dx) for the web client.
 [profile.release]
 lto = "thin"

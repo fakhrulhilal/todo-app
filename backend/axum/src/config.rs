@@ -132,7 +132,8 @@ mod tests {
     use super::*;
 
     fn load(arguments: &[&str]) -> Result<Config, figment::Error> {
-        Config::load(&Cli::parse_from([&["todo-api"], arguments].concat())).map_err(|error| *error)
+        Config::load(&Cli::parse_from([&["todo-backend"], arguments].concat()))
+            .map_err(|error| *error)
     }
 
     #[test]

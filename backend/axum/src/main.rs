@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use clap::Parser;
-use todo_api::{cli::Cli, config::Config, logging};
+use todo_backend::{cli::Cli, config::Config, logging};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -18,5 +18,5 @@ async fn main() -> ExitCode {
 async fn run(cli: Cli) -> anyhow::Result<()> {
     let config = Config::load(&cli).context("invalid configuration")?;
     logging::init(&config)?;
-    todo_api::run(config).await
+    todo_backend::run(config).await
 }

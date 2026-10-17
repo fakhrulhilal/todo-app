@@ -2,7 +2,7 @@
 
 use reqwest::{Client, StatusCode};
 use serde_json::json;
-use todo_api::domain::Todo;
+use todo_backend::domain::Todo;
 
 use crate::{create, problem, spawn_app};
 

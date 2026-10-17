@@ -1,10 +1,10 @@
-//! The todo model lives in `todo-shared`, where the web client reads it too.
+//! The todo model lives in `todo-contract`, where the frontend reads it too.
 //! What only the server does with it is here.
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-pub use todo_shared::*;
+pub use todo_contract::*;
 
 pub fn new_todo(title: String) -> Todo {
     let now = now();

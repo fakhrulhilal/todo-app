@@ -5,7 +5,7 @@ on:
     branches: [main]
     tags: ["v*"]
     paths-ignore:
-      - web/assets/**
+      - frontend/dioxus/assets/**
       - "**.md"
   pull_request:
   workflow_dispatch:

@@ -1,4 +1,4 @@
-//! The todo model shared by the JSON API and the web client, so both sides
+//! The todo model shared by the backend and the frontend, so both sides
 //! of the wire are checked against the same types.
 
 use std::{convert::Infallible, fmt, str::FromStr};

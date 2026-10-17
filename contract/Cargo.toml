@@ -1,5 +1,5 @@
 [package]
-name = "todo-shared"
+name = "todo-contract"
 version.workspace = true
 edition.workspace = true
 

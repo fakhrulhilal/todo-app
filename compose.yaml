@@ -1,3 +1,4 @@
+name: todo_list
 # The whole app on one address, built if needed and started with:
 #
 #   docker compose up -d        then open http://localhost:8080
@@ -5,18 +6,19 @@
 #   browser ──▶ web (Caddy) ──▶ the web client (static files)
 #                          └──▶ api ──▶ db (PostgreSQL)
 #
-# The images are built from frontend.Dockerfile and backend.Dockerfile.
+# The images are built from frontend/dioxus/Dockerfile and backend/axum/Dockerfile.
 # Caddy's configuration is at the end of this file.
 # After changing the code: docker compose up -d --build
 #
 # Settings (environment or .env): TODO_WEB_PORT, TODO_DB_PASSWORD.
 
 services:
-  web:
-    image: todo-dx-web:latest
+  frontend-dioxus:
+    image: frontend/dioxus:latest
+    container_name: todo.dioxus
     build:
       context: .
-      dockerfile: frontend.Dockerfile
+      dockerfile: frontend/dioxus/Dockerfile
     configs:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
@@ -28,17 +30,18 @@ services:
       timeout: 3s
       retries: 3
     depends_on:
-      api:
+      backend-axum:
         condition: service_healthy
     restart: unless-stopped
     labels:
-      dev.orbstack.domains: todo.local
+      dev.orbstack.domains: dx.todo.local,todo.local
 
-  api:
-    image: todo-dx-api:latest
+  backend-axum:
+    image: backend/axum:latest
+    container_name: todo.axum
     build:
       context: .
-      dockerfile: backend.Dockerfile
+      dockerfile: backend/axum/Dockerfile
     environment:
       DATABASE__URL: postgres://todo:${TODO_DB_PASSWORD:-todo}@db:5432/todo
     depends_on:
@@ -47,10 +50,15 @@ services:
     restart: unless-stopped
     labels:
       dev.orbstack.http-port: 8080
-      dev.orbstack.domains: api.todo.local
+      dev.orbstack.domains: axum.api.todo.local,api.todo.local
+    networks:
+      default:
+        aliases:
+          - api
 
   db:
     image: postgres:17-alpine
+    container_name: todo.db
     environment:
       POSTGRES_USER: todo
       POSTGRES_PASSWORD: ${TODO_DB_PASSWORD:-todo}

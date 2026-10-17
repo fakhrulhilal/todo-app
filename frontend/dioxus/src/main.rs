@@ -1,12 +1,12 @@
 //! The web client: a static single-page app. Every read and write is a call
 //! to the JSON API, and the list is updated in place.
 
-mod api;
+mod api_client;
 
 use std::future::Future;
 
 use dioxus::prelude::*;
-use todo_shared::{CreateTodo, MAX_TITLE_CHARS, StatusFilter, Todo, UpdateTodo};
+use todo_contract::{CreateTodo, MAX_TITLE_CHARS, StatusFilter, Todo, UpdateTodo};
 use uuid::Uuid;
 
 const STYLESHEET: Asset = asset!("/assets/app.css");
@@ -55,7 +55,7 @@ fn Shell() -> Element {
     rsx! {
         header { class: "site",
             Link { class: "brand", to: Route::list(StatusFilter::All), "Todos" }
-            a { href: api::docs_url(), "API docs" }
+            a { href: api_client::docs_url(), "API docs" }
         }
         main { Outlet::<Route> {} }
     }
@@ -133,7 +133,7 @@ fn TodoList(filter: ReadSignal<StatusFilter>) -> Element {
     use_resource(move || {
         let filter = filter();
         async move {
-            if let Some(list) = todos.run(api::list(filter)).await {
+            if let Some(list) = todos.run(api_client::list(filter)).await {
                 items.set(list);
                 loaded.set(true);
             }
@@ -148,7 +148,7 @@ fn TodoList(filter: ReadSignal<StatusFilter>) -> Element {
             onsubmit: move |event| async move {
                 event.prevent_default();
                 let input = CreateTodo { title: title() };
-                if let Some(todo) = todos.run(api::create(&input)).await {
+                if let Some(todo) = todos.run(api_client::create(&input)).await {
                     title.set(String::new());
                     todos.place(todo);
                 }
@@ -233,7 +233,7 @@ fn TodoItem(todo: Todo, todos: Todos) -> Element {
                 title: Some(title),
                 ..UpdateTodo::default()
             };
-            if let Some(todo) = todos.run(api::update(id, &changes)).await {
+            if let Some(todo) = todos.run(api_client::update(id, &changes)).await {
                 draft.set(None);
                 todos.place(todo);
             }
@@ -253,7 +253,7 @@ fn TodoItem(todo: Todo, todos: Todos) -> Element {
                         completed: Some(!completed),
                         ..UpdateTodo::default()
                     };
-                    if let Some(todo) = todos.run(api::update(id, &changes)).await {
+                    if let Some(todo) = todos.run(api_client::update(id, &changes)).await {
                         todos.place(todo);
                     }
                 },
@@ -295,7 +295,7 @@ fn TodoItem(todo: Todo, todos: Todos) -> Element {
                 r#type: "button",
                 class: "action danger",
                 onclick: move |_| async move {
-                    if todos.run(api::delete(id)).await.is_some() {
+                    if todos.run(api_client::delete(id)).await.is_some() {
                         todos.remove(id);
                     }
                 },

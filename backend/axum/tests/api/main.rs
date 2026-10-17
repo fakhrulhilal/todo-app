@@ -11,19 +11,19 @@ mod todos;
 
 use reqwest::{Client, StatusCode, header::CONTENT_TYPE};
 use serde_json::json;
-use todo_api::{
+use todo_backend::{
     api::problem::{PROBLEM_JSON, Problem},
     config::DatabaseConfig,
     domain::Todo,
 };
 use tokio::net::TcpListener;
 
-/// Where the web client is served from in these tests.
+/// Where the frontend is served from in these tests.
 const WEB_ORIGIN: &str = "https://todos.example";
 
 /// Starts the app on a free port and returns its base URL.
 async fn spawn_app() -> String {
-    let store = todo_api::store::connect(&DatabaseConfig {
+    let store = todo_backend::store::connect(&DatabaseConfig {
         url: "sqlite::memory:".to_owned(),
         max_connections: 1,
     })
@@ -32,7 +32,7 @@ async fn spawn_app() -> String {
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base_url = format!("http://{}", listener.local_addr().unwrap());
-    let app = todo_api::app(store, WEB_ORIGIN).unwrap();
+    let app = todo_backend::app(store, WEB_ORIGIN).unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     base_url
 }

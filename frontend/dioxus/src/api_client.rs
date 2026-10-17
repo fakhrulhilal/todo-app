@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use gloo_net::http::{Request, Response};
 use serde::{Deserialize, de::DeserializeOwned};
-use todo_shared::{CreateTodo, StatusFilter, Todo, UpdateTodo};
+use todo_contract::{CreateTodo, StatusFilter, Todo, UpdateTodo};
 use uuid::Uuid;
 
 /// Where the API lives. A static site cannot be configured when it starts,

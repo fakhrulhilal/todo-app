@@ -33,10 +33,11 @@ fn App() -> impl IntoView {
                 <a href="/" class="text-2xl font-bold tracking-tight">
                     "Todos"
                 </a>
-                // rel=external: the router would otherwise treat a same-origin
-                // API address as one of its own pages.
+                // Served by the deployment (compose.yaml: Caddy passes /docs on).
+                // rel=external: the router would otherwise treat it as one of
+                // its own pages.
                 <a
-                    href=api::docs_url()
+                    href="/docs/"
                     rel="external"
                     class="text-primary text-sm underline-offset-4 hover:underline"
                 >

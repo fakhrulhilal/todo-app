@@ -9,7 +9,7 @@ implementation, in a folder beside `backend/` and `frontend/`.
 | Folder             | What                                                                                                             | Built with |
 |--------------------|------------------------------------------------------------------------------------------------------------------|------------|
 | `contract/`        | The todo model and validation, compiled by both sides                                                            | serde      |
-| `backend/axum/`    | The JSON API server with Swagger docs, shipped as a container image                                              | [axum](https://github.com/tokio-rs/axum) |
+| `backend/axum/`    | The JSON API server with its OpenAPI document, shipped as a container image                                      | [axum](https://github.com/tokio-rs/axum) |
 | `frontend/dioxus/` | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
 | `frontend/leptos/` | The same web client, styled with Tailwind CSS and [Rust/UI](https://www.rust-ui.com) components, with API data cached by [leptos-fetch](https://github.com/zakstucke/leptos-fetch). See its [README](frontend/leptos/README.md) | [Leptos](https://leptos.dev) |
 | `fullstack/topcoat/` | Server-rendered page in one binary, with no JSON API: the list is a Topcoat shard and the actions are procedures. See its [README](fullstack/topcoat/README.md) | [Topcoat](https://github.com/tokio-rs/topcoat) |
@@ -60,6 +60,11 @@ frontend only builds for WebAssembly, so Cargo skips it unless asked.
 The client is told where the API is when it is built, through `TODO_API_URL`.
 Without it, it calls `http://127.0.0.1:8080`. Set to nothing
 (`TODO_API_URL=`), it calls the address the site itself is served from.
+
+The "API docs" link opens `/docs/` on the site's own address. The clients do
+not serve it: the deployment does (see
+[Docker Compose](#run-everything-with-docker-compose)), so under `dx serve` or
+`trunk serve` the link has nothing behind it.
 
 If port 8080 is taken, move the API and tell the client:
 
@@ -280,12 +285,16 @@ it is off.
 one PostgreSQL database:
 
 - **Dioxus + axum**, on <http://localhost:8080>:
-  [Caddy](https://caddyserver.com) serves the frontend and passes `/api`,
-  `/swagger-ui` and `/health` on to the API. The browser sees a single site, so
-  CORS is not involved.
+  [Caddy](https://caddyserver.com) serves the frontend and passes `/api` and
+  `/health` on to the API. The browser sees a single site, so CORS is not
+  involved.
 - **Topcoat**, on <http://localhost:8081>: the server-rendered app.
 - **Leptos + axum**, on <http://localhost:8083>: the Leptos client, set up
   like the Dioxus one, against the same API.
+- **API reference** (`backend-docs`), at `/docs/` on both client sites:
+  [Scalar](https://scalar.com) renders `contract/openapi.json`, served at
+  `/docs/openapi/todo.json`. Each client's Caddy passes `/docs` on to it, which
+  is where their "API docs" link goes.
 
 ```sh
 docker compose up -d
@@ -350,8 +359,7 @@ steps with `--base-path <repository>`.
 | URL                 | What                                                |
 |---------------------|-----------------------------------------------------|
 | `/api/v1/todos`     | JSON API                                            |
-| `/swagger-ui`       | Swagger UI (`/` redirects here)                     |
-| `/api/openapi.json` | OpenAPI 3.1 document                                |
+| `/api/openapi.json` | OpenAPI 3.1 document (`/` redirects here)           |
 | `/health/live`      | Liveness probe: is the process serving requests?    |
 | `/health/ready`     | Readiness probe: do the things it depends on answer? |
 

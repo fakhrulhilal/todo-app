@@ -55,7 +55,7 @@ fn Shell() -> Element {
     rsx! {
         header { class: "site",
             Link { class: "brand", to: Route::list(StatusFilter::All), "Todos" }
-            a { href: api_client::docs_url(), "API docs" }
+            a { href: "/docs/", "API docs" }
         }
         main { Outlet::<Route> {} }
     }

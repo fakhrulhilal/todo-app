@@ -1,4 +1,4 @@
-//! The todo list's JSON API, with Swagger docs. The frontend is a separate
+//! The todo list's JSON API, described by an OpenAPI document. The frontend is a separate
 //! static site (`frontend/dioxus/`) that calls this API from the browser.
 
 pub mod api;

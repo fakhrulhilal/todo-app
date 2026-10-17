@@ -1,4 +1,5 @@
-//! The JSON API, its OpenAPI document and Swagger UI.
+//! The JSON API and its OpenAPI document. No documentation UI is served: any
+//! OpenAPI viewer (Scalar in compose.yaml) reads the document instead.
 
 mod extract;
 pub mod health;
@@ -7,10 +8,9 @@ pub mod todos;
 
 use std::sync::Arc;
 
-use axum::{Router, middleware, response::Redirect, routing::get};
+use axum::{Json, Router, middleware, response::Redirect, routing::get};
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
-use utoipa_swagger_ui::SwaggerUi;
 
 use self::{
     health::{DatabaseCheck, HealthChecks},
@@ -19,7 +19,6 @@ use self::{
 use crate::store::Store;
 
 pub const OPENAPI_PATH: &str = "/api/openapi.json";
-pub const SWAGGER_UI_PATH: &str = "/swagger-ui";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -37,7 +36,7 @@ pub struct AppState {
 )]
 struct ApiDoc;
 
-/// Routes under `/api`, `/health` and `/swagger-ui`.
+/// Routes under `/api` and `/health`, and the OpenAPI document.
 pub fn router(store: Store) -> Router {
     let (router, openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/api/v1", todos::router())
@@ -50,10 +49,16 @@ pub fn router(store: Store) -> Router {
         .split_for_parts();
 
     router
-        .route("/", get(|| async { Redirect::temporary(SWAGGER_UI_PATH) }))
+        .route(
+            OPENAPI_PATH,
+            get(move || {
+                let document = openapi.clone();
+                async move { Json(document) }
+            }),
+        )
+        .route("/", get(|| async { Redirect::temporary(OPENAPI_PATH) }))
         .fallback(unknown_endpoint)
         .layer(middleware::from_fn(problem::problem_details))
-        .merge(SwaggerUi::new(SWAGGER_UI_PATH).url(OPENAPI_PATH, openapi))
 }
 
 async fn unknown_endpoint() -> ApiError {

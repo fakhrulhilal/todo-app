@@ -94,6 +94,29 @@ services:
       # db-init owns the schema here.
       DATABASE__MIGRATION: "false"
 
+  backend-docs:
+    image: scalarapi/api-reference:0.6.15
+    container_name: todo.scalar
+    volumes:
+      - ./contract/openapi.json:/docs/todo.json:ro
+    environment:
+      API_REFERENCE_CONFIG: >-
+        {"servers": [
+          {"url": "https://api.todo.local", "description": "Public API"},
+        ]}
+    ports:
+      - "${TODO_DOCS_PORT:-8084}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    labels:
+      dev.orbstack.domains: docs.api.todo.local
+      dev.orbstack.http-port: 8080
+      dev.orbstack.icon: https://scalar.com/favicon.svg
+
   db:
     image: postgres:17-alpine
     container_name: todo.db
@@ -174,9 +197,21 @@ configs:
       :80 {
       	encode zstd gzip
 
-      	@api path /api/* /swagger-ui /swagger-ui/* /health/*
+      	@api path /api/* /health/*
       	handle @api {
       		reverse_proxy api:8080
+      	}
+
+      	# The API reference (backend-docs) under /docs. It serves from its own
+      	# root, so the prefix is stripped, and the two files its page loads by
+      	# absolute path are passed on as they are.
+      	redir /docs /docs/
+      	handle_path /docs/* {
+      		reverse_proxy backend-docs:8080
+      	}
+      	@docs path /configuration.json /openapi/*
+      	handle @docs {
+      		reverse_proxy backend-docs:8080
       	}
 
       	handle {

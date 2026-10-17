@@ -27,6 +27,8 @@ trunk build --release                         # static site in dist/
 
 `TODO_API_URL` is read when the client is compiled. Empty means the address
 the site itself is served from, which is how the compose image works.
+The "API docs" link opens `/docs/` on the same site, which the deployment
+serves (compose.yaml), not this client.
 
 ## How it is put together
 

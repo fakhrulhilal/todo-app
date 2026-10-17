@@ -1,4 +1,4 @@
-//! `src/api.rs`: the OpenAPI document, Swagger UI and the root redirect.
+//! `src/api.rs`: the OpenAPI document and the root redirect.
 
 use std::{fs, path::Path};
 
@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::spawn_app;
 
 #[tokio::test]
-async fn openapi_document_and_swagger_ui() {
+async fn openapi_document_is_served() {
     let base_url = spawn_app().await;
     let client = Client::new();
 
@@ -29,16 +29,17 @@ async fn openapi_document_and_swagger_ui() {
         assert!(document["paths"][path].is_object(), "{path} is documented");
     }
 
+    // No documentation UI: that is left to OpenAPI viewers.
     let ui = client
         .get(format!("{base_url}/swagger-ui/"))
         .send()
         .await
         .unwrap();
-    assert_eq!(ui.status(), StatusCode::OK);
+    assert_eq!(ui.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
-async fn root_leads_to_the_api_docs() {
+async fn root_leads_to_the_openapi_document() {
     let base_url = spawn_app().await;
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -47,7 +48,7 @@ async fn root_leads_to_the_api_docs() {
 
     let root = client.get(&base_url).send().await.unwrap();
     assert_eq!(root.status(), StatusCode::TEMPORARY_REDIRECT);
-    assert_eq!(root.headers()["location"], "/swagger-ui");
+    assert_eq!(root.headers()["location"], "/api/openapi.json");
 }
 
 /// The document is the contract other implementations are written against, so

@@ -25,10 +25,6 @@ fn todo_url(id: Uuid) -> String {
     url(&format!("/api/v1/todos/{id}"))
 }
 
-pub fn docs_url() -> String {
-    url("/swagger-ui")
-}
-
 pub async fn list(filter: StatusFilter) -> Result<Vec<Todo>, String> {
     let request = Request::get(&url(&format!("/api/v1/todos?status={filter}"))).build();
     json(send(request).await?).await

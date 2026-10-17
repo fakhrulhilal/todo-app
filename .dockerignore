@@ -1,6 +1,6 @@
 # Build outputs and local state
-target
-dist
+**/target
+**/dist
 data
 config.yaml
 *.db

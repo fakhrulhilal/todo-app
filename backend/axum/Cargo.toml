@@ -22,7 +22,6 @@ tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 turso = { version = "0.8.2", default-features = false }
 utoipa = { version = "6.0.0", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-axum = "0.3.0"
-utoipa-swagger-ui = { version = "10.0.1", features = ["axum", "vendored"] }
 uuid = { workspace = true, features = ["v7"] }
 
 [dev-dependencies]

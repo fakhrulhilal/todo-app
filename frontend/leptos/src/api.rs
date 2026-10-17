@@ -25,10 +25,6 @@ fn todo_url(id: Uuid) -> String {
     url(&format!("/api/v1/todos/{id}"))
 }
 
-pub fn docs_url() -> String {
-    url("/swagger-ui")
-}
-
 /// The todos under a filter. Used as a leptos-fetch query, keyed by the filter.
 pub async fn list(filter: StatusFilter) -> Result<Vec<Todo>, String> {
     let request = Request::get(&url(&format!("/api/v1/todos?status={filter}"))).build();

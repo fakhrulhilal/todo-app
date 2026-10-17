@@ -1,0 +1,11 @@
+[package]
+name = "todo-web"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dioxus = { version = "0.7.10", features = ["web", "router"] }
+gloo-net = { version = "0.7.0", default-features = false, features = ["http", "json"] }
+serde.workspace = true
+todo-shared.workspace = true
+uuid.workspace = true

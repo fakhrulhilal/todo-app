@@ -1,0 +1,9 @@
+/target
+/dist
+/data
+/config.yaml
+*.db
+*.db-wal
+*.db-shm
+.env
+.DS_Store

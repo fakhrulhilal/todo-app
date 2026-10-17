@@ -1,0 +1,87 @@
+# The whole app on one address, built if needed and started with:
+#
+#   docker compose up -d        then open http://localhost:8080
+#
+#   browser ──▶ web (Caddy) ──▶ the web client (static files)
+#                          └──▶ api ──▶ db (PostgreSQL)
+#
+# The images are built from frontend.Dockerfile and backend.Dockerfile.
+# Caddy's configuration is at the end of this file.
+# After changing the code: docker compose up -d --build
+#
+# Settings (environment or .env): TODO_WEB_PORT, TODO_DB_PASSWORD.
+
+services:
+  web:
+    image: todo-dx-web:latest
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    ports:
+      - "${TODO_WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    labels:
+      dev.orbstack.domains: todo.local
+
+  api:
+    image: todo-dx-api:latest
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    environment:
+      DATABASE__URL: postgres://todo:${TODO_DB_PASSWORD:-todo}@db:5432/todo
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    labels:
+      dev.orbstack.http-port: 8080
+      dev.orbstack.domains: api.todo.local
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: todo
+      POSTGRES_PASSWORD: ${TODO_DB_PASSWORD:-todo}
+      POSTGRES_DB: todo
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todo -d todo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+configs:
+  caddyfile:
+    content: |
+      :80 {
+      	encode zstd gzip
+
+      	@api path /api/* /swagger-ui /swagger-ui/* /health/*
+      	handle @api {
+      		reverse_proxy api:8080
+      	}
+
+      	handle {
+      		root * /srv
+      		# Paths that are not files belong to the client's router.
+      		try_files {path} /index.html
+      		file_server
+      	}
+      }
+
+volumes:
+  db-data:

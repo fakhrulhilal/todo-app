@@ -1,0 +1,9 @@
+*
+!Cargo.toml
+!Cargo.lock
+!shared
+!api
+!web/Cargo.toml
+!web/Dioxus.toml
+!web/src
+!web/assets

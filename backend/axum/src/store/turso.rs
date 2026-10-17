@@ -16,7 +16,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const MIGRATIONS: &[(i64, &str, &str)] = &[(
     1,
     "create_todos",
-    include_str!("../../migrations/sqlite/0001_create_todos.sql"),
+    include_str!("../../../../db/sqlite/0001_create_todos.sql"),
 )];
 
 pub struct TursoStore {
@@ -24,8 +24,9 @@ pub struct TursoStore {
 }
 
 impl TursoStore {
-    /// Opens (creating if needed) a database file, or `:memory:`.
-    pub async fn open(path: &str) -> Result<Self, StoreError> {
+    /// Opens (creating if needed) a database file, or `:memory:`, and applies
+    /// pending migrations when `migrate` is set.
+    pub async fn open(path: &str, migrate: bool) -> Result<Self, StoreError> {
         if path != ":memory:"
             && let Some(dir) = Path::new(path).parent()
             && !dir.as_os_str().is_empty()
@@ -35,7 +36,9 @@ impl TursoStore {
 
         let db = Builder::new_local(path).build().await?;
         let store = Self { db };
-        store.migrate().await?;
+        if migrate {
+            store.migrate().await?;
+        }
         Ok(store)
     }
 

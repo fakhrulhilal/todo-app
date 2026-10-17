@@ -82,6 +82,11 @@ pub struct DatabaseArgs {
     #[arg(long = "database-max-connections", value_name = "COUNT")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_connections: Option<u32>,
+
+    /// Apply the pending migrations on startup: true or false
+    #[arg(long = "database-migration", value_name = "BOOL")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub migration: Option<bool>,
 }
 
 #[derive(Debug, Default, Args, Serialize)]

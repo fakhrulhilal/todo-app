@@ -48,6 +48,8 @@ pub struct DatabaseConfig {
     pub url: String,
     /// Connection pool size. Only PostgreSQL uses a pool.
     pub max_connections: u32,
+    /// Whether the app applies the pending migrations on startup.
+    pub migration: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -167,6 +169,7 @@ mod tests {
             let config = load(&[])?;
             assert_eq!(config.server.port, 8080);
             assert_eq!(config.env, Environment::Local);
+            assert!(config.database.migration);
 
             jail.create_file(
                 "config.yaml",
@@ -178,10 +181,12 @@ mod tests {
             jail.set_env("SERVER__PORT", 9002);
             jail.set_env("DATABASE__MAX_CONNECTIONS", 4);
             jail.set_env("ENV", "production");
+            jail.set_env("DATABASE__MIGRATION", "false");
             let config = load(&[])?;
             assert_eq!(config.server.port, 9002);
             assert_eq!(config.database.max_connections, 4);
             assert_eq!(config.env, Environment::Production);
+            assert!(!config.database.migration);
             // Still from the file.
             assert_eq!(config.server.host, "0.0.0.0");
 

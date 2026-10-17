@@ -1,14 +1,17 @@
-# todo-dx
+# Todo List app
 
-A todo list in Rust, split into three parts. The **contract** is what the
-other two agree on; each implementation is named after its framework, so
-other Rust projects of the same app can sit next to it and share the contract.
+A todo list in Rust, split into parts. The **contract** is what the others
+agree on; each implementation is named after its framework, so other Rust
+projects of the same app can sit next to it and share the contract. An app
+that serves its own page and API in one service is a **fullstack**
+implementation, in a folder beside `backend/` and `frontend/`.
 
 | Folder             | What                                                                                                             | Built with |
 |--------------------|------------------------------------------------------------------------------------------------------------------|------------|
 | `contract/`        | The todo model and validation, compiled by both sides                                                            | serde      |
 | `backend/axum/`    | The JSON API server with Swagger docs, shipped as a container image                                              | [axum](https://github.com/tokio-rs/axum) |
 | `frontend/dioxus/` | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
+| `fullstack/topcoat/` | Server-rendered page in one binary, with no JSON API: the list is a Topcoat shard and the actions are procedures. See its [README](fullstack/topcoat/README.md) | [Topcoat](https://github.com/tokio-rs/topcoat) |
 
 ```text
 browser ──▶ GitHub Pages            static files (HTML, CSS, WASM), loaded once
@@ -18,8 +21,10 @@ browser ──▶ /api/v1/todos (JSON) ──▶ backend ──▶ database
 The frontend has no server of its own. Adding, completing, renaming, deleting
 and filtering are calls to the JSON API, and the page is updated in place.
 The HTTP API itself is described by the OpenAPI document at
-`/api/openapi.json`, so a second backend or frontend only has to follow it and
-reuse `contract/` where it is also written in Rust.
+`/api/openapi.json`. `cargo test` writes a copy to
+[`contract/openapi.json`](contract/openapi.json) from the axum backend; commit
+it when it changes. A second backend or frontend only has to follow that
+document, and reuse the `contract/` crate where it is also written in Rust.
 
 ## Run locally
 
@@ -34,6 +39,7 @@ the repository root, and pick the part with `-p <package>`:
 | `contract/`        | `todo-contract` |
 | `backend/axum/`    | `todo-backend`  |
 | `frontend/dioxus/` | `todo-frontend` |
+| `fullstack/topcoat/` | `todo-fullstack` |
 
 ```sh
 cargo run -p todo-backend                    # the backend, on http://127.0.0.1:8080
@@ -41,7 +47,8 @@ dx serve -p todo-frontend --port 8081        # the frontend, on http://127.0.0.1
 ```
 
 Todos are stored in `data/todo.db`, relative to where the backend is started
-(the repository root). `cargo test` runs the contract and backend tests; the
+(the repository root). SQLite is for local work only; containers use
+PostgreSQL (see [Database](#database)). `cargo test` runs the contract and backend tests; the
 frontend only builds for WebAssembly, so Cargo skips it unless asked.
 
 The client is told where the API is when it is built, through `TODO_API_URL`.
@@ -76,7 +83,7 @@ repository root.
    ```
 
 4. The result is one executable, `target/release/todo-backend`, with the default
-   configuration and the database migrations compiled in. Run it:
+   configuration and the migrations of both databases compiled in. Run it:
 
    ```sh
    ./target/release/todo-backend --server-host 0.0.0.0 --server-port 8080
@@ -124,31 +131,144 @@ To ship it as a container instead, see
 The first `dx` build is slow: it compiles every dependency for WebAssembly,
 and `dx` may make rustup download the nightly toolchain.
 
-## Run everything with Docker Compose
+## Database
 
-[`compose.yaml`](compose.yaml) runs the whole app on one address:
-[Caddy](https://caddyserver.com) serves the frontend and passes `/api`,
-`/swagger-ui` and `/health` on to the API, which stores todos in PostgreSQL.
-The browser sees a single site, so CORS is not involved.
+Every implementation reads and writes the same `todos` table. Its schema is
+kept in one place, [`db/`](db), for every implementation. Two databases are
+supported, for different purposes:
 
-```sh
-docker compose up -d      # then open http://localhost:8080
+| Where                       | Database   | Why                                                    |
+|-----------------------------|------------|--------------------------------------------------------|
+| Local development and tests | SQLite (embedded [Turso](https://github.com/tursodatabase/turso)), the default `sqlite://data/todo.db` | Nothing to install or start; each app keeps its own file |
+| Containers                  | PostgreSQL | One database that every service shares                 |
+
+In a container, every service uses PostgreSQL. This keeps the
+implementations compatible with each other in both ways they can meet:
+
+- **Through the API:** a frontend talks to any backend, and sees the same
+  todos whichever one answers.
+- **Directly through the database:** several apps share one database at the
+  same time, as the axum backend and the Topcoat app do in
+  [`compose.yaml`](compose.yaml). A todo added in one shows up in the other.
+
+SQLite cannot do the second: each container would have its own file, and the
+apps would drift apart. So in [`compose.yaml`](compose.yaml) every service gets
+`DATABASE__URL` pointing at PostgreSQL. The images still default to SQLite in
+their `/data` volume, so a bare `docker run` works without a database server.
+
+### Schema
+
+The schema is applied in one of two ways, chosen by the `database.migration`
+setting (`DATABASE__MIGRATION`):
+
+| `database.migration` | Who applies the schema                | Used by                               |
+|----------------------|---------------------------------------|---------------------------------------|
+| `true` (the default) | the app, on startup, from its numbered migrations | local development, a bare `docker run` |
+| `false`              | something else, before the app starts | [`compose.yaml`](compose.yaml), where pgschema does it |
+
+```text
+db/
+  sqlite/                    numbered migrations, applied by the app
+  postgres/
+    migrations/              numbered migrations, applied by the app (sqlx)
+    schema.sql               the desired state, applied by pgschema
+    .pgschemaignore          what pgschema leaves alone
 ```
 
-That is the only step. The first run builds the two images, which takes a
+The apps compile the numbered migrations in, so a binary or image migrates
+without the repository next to it. With `database.migration` on, it applies
+the ones not yet applied, in order, and records them (`_migrations` in SQLite,
+`_sqlx_migrations` in PostgreSQL).
+
+#### PostgreSQL in compose: pgschema
+
+[pgschema](https://www.pgschema.com) is declarative. `schema.sql` is the
+schema as it should be, not a list of steps: pgschema compares it with the
+database and applies the difference, much like `terraform apply`. Compose runs
+it on every `docker compose up` (the `db-init` service) and starts the apps,
+with `database.migration` off, only after it succeeded. When nothing changed
+it does nothing.
+
+pgschema validates `schema.sql` in a scratch database before it compares.
+Without `--plan-host` it would download an embedded PostgreSQL for that, so
+compose gives it a `pgschema_plan` database on the `db` server instead (the
+`db-plan-init` service creates it).
+
+To see what it would change in a database of your own:
+
+```sh
+docker run --rm --network host -w /schema -e PGPASSWORD=todo \
+  -v "$PWD/db/postgres:/schema:ro" pgplex/pgschema:1.13.3 \
+  plan --host localhost --db todo --user todo --file /schema/schema.sql
+```
+
+Two things follow from the declarative model:
+
+- Anything in the `public` schema that `schema.sql` does not describe is
+  dropped, except what `.pgschemaignore` names (`_sqlx_migrations`, so a
+  database the apps migrated can also be managed by pgschema).
+- pgschema does not move data. A change that needs a backfill, such as a new
+  `NOT NULL` column on a table with rows, goes in steps: add it nullable, fill
+  it, then make it `NOT NULL`.
+
+A database pgschema created has no `_sqlx_migrations`. Keep
+`database.migration` off for apps that use it: with it on, an app would apply
+`0001` again and stop at startup, because the table exists already.
+
+#### Changing the schema
+
+One change goes in three places, so every way of applying it ends with the
+same schema:
+
+1. `db/postgres/schema.sql`: edit it to the new state.
+2. `db/postgres/migrations/000N_<name>.sql`: the step from the previous state.
+3. `db/sqlite/000N_<name>.sql`: the same step for SQLite.
+
+Never edit a migration that has been applied somewhere: sqlx compares
+checksums and refuses to start on a changed file. To check that (1) and (2)
+agree, let an app migrate an empty PostgreSQL, then run `pgschema plan`
+against it: it must report no changes.
+
+A new implementation reads the same tables. It applies the numbered
+migrations of its database when `database.migration` is on, and nothing when
+it is off.
+
+## Run everything with Docker Compose
+
+[`compose.yaml`](compose.yaml) builds and runs every implementation against
+one PostgreSQL database:
+
+- **Dioxus + axum**, on <http://localhost:8080>:
+  [Caddy](https://caddyserver.com) serves the frontend and passes `/api`,
+  `/swagger-ui` and `/health` on to the API. The browser sees a single site, so
+  CORS is not involved.
+- **Topcoat**, on <http://localhost:8081>: the server-rendered app.
+
+```sh
+docker compose up -d
+```
+
+That is the only step. The first run builds the three images, which takes a
 few minutes; later runs start at once. After changing the code, rebuild with
 `docker compose up -d --build`.
 
-The images are built from [`frontend/dioxus/Dockerfile`](frontend/dioxus/Dockerfile)
-(the client, compiled with an empty `TODO_API_URL` so that it calls the
-address it was loaded from, and served by Caddy) and
-[`backend/axum/Dockerfile`](backend/axum/Dockerfile) (the API). Caddy's configuration
-is inside `compose.yaml`.
+The images are built from
+- [`frontend/dioxus/Dockerfile`](frontend/dioxus/Dockerfile): the client,
+  compiled with an empty `TODO_API_URL` so that it calls the address it was
+  loaded from, and served by Caddy. Caddy's configuration is inside
+  `compose.yaml`.
+- [`backend/axum/Dockerfile`](backend/axum/Dockerfile): the API.
+- [`fullstack/topcoat/Dockerfile`](fullstack/topcoat/Dockerfile): the
+  fullstack app.
 
-| Variable           | What                            | Default |
-|--------------------|---------------------------------|---------|
-| `TODO_WEB_PORT`    | Port the site is published on   | `8080`  |
-| `TODO_DB_PASSWORD` | Password of the PostgreSQL user | `todo`  |
+Every service uses the one PostgreSQL database (`db`), so a todo added in
+one app shows up in the other. See [Database](#database).
+
+| Variable            | What                                    | Default |
+|---------------------|-----------------------------------------|---------|
+| `TODO_WEB_PORT`     | Port the Dioxus site is published on    | `8080`  |
+| `TODO_TOPCOAT_PORT` | Port the Topcoat app is published on    | `8081`  |
+| `TODO_DB_PASSWORD`  | Password of the PostgreSQL user         | `todo`  |
 
 Todos are kept in the `db-data` volume; `docker compose down -v` deletes them.
 
@@ -288,6 +408,7 @@ from it:
 | `server.cors_origins`      | `SERVER__CORS_ORIGINS`      | `--server-cors-origins`      | `*`                     |
 | `database.url`             | `DATABASE__URL`             | `--database-url`             | `sqlite://data/todo.db` |
 | `database.max_connections` | `DATABASE__MAX_CONNECTIONS` | `--database-max-connections` | `10`                    |
+| `database.migration`       | `DATABASE__MIGRATION`       | `--database-migration`       | `true`                  |
 | `log.level`                | `LOG__LEVEL`                | `--log-level`                | `info`                  |
 | `log.format`               | `LOG__FORMAT`               | `--log-format`               | `auto`                  |
 
@@ -319,8 +440,10 @@ local work; in production, name the site that hosts the frontend.
 | `sqlite::memory:`                | In memory, lost on exit (quote it in YAML)                     |
 | `postgres://user:pass@host/db`   | PostgreSQL                                                     |
 
-The schema is created and migrated on startup, from
-[`backend/axum/migrations/`](backend/axum/migrations).
+With `database.migration` on, the app applies the pending migrations on
+startup, from [`db/sqlite/`](db/sqlite) or
+[`db/postgres/migrations/`](db/postgres/migrations). Turn it off where
+something else owns the schema, as compose does (see [Schema](#schema)).
 
 `log.format` is `text` (plain text), `json` (one JSON object per line) or
 `auto`, which picks text when `env` is `local` and JSON when it is
@@ -354,12 +477,17 @@ and publishes the image to `ghcr.io/<owner>/<repository>-api`: `latest` and
 the branch name on `main`, and the version for a `v1.2.3` tag.
 
 ```sh
-docker run --rm -p 8080:8080 -v todo-data:/data ghcr.io/<user>/todo-dx-api
+docker run --rm -p 8080:8080 \
+  -e DATABASE__URL=postgres://todo:todo@<host>:5432/todo \
+  ghcr.io/<user>/todo-dx-api
 ```
 
-In the image the API runs as user `10001`, listens on `0.0.0.0:8080`, uses
-`env: production` (JSON logs) and stores SQLite data in the `/data` volume.
-Override any of it with the environment variables above.
+In the image the API runs as user `10001`, listens on `0.0.0.0:8080` and uses
+`env: production` (JSON logs). Give it `DATABASE__URL` for PostgreSQL, as
+compose does: containers share one PostgreSQL database
+(see [Database](#database)). Without it, the image falls back to SQLite in the
+`/data` volume, which is only good for a quick try. Override any setting with
+the environment variables above.
 
 The image's `HEALTHCHECK` calls `/health/ready`, so the container is reported
 unhealthy while its database is unreachable. If you change
@@ -368,12 +496,16 @@ unhealthy while its database is unreachable. If you change
 ## Layout
 
 ```text
-contract/              the todo model and validation, used by every implementation
+contract/              the todo model and validation, shared by every
+                       implementation
+  openapi.json         the API, written by the axum backend's tests
+db/                    the database schema, shared by every implementation
+  postgres/            PostgreSQL: numbered migrations and schema.sql for pgschema
+  sqlite/              SQLite: numbered migrations
 backend/
   axum/                the JSON API server
     src/               configuration, logging, storage backends, API and OpenAPI
     config/            default configuration
-    migrations/        SQL per database
     tests/api/         end-to-end tests against an in-memory database,
                        one file per source file they cover
     Dockerfile         image of the backend
@@ -383,10 +515,15 @@ frontend/
     src/api_client.rs  calls to the JSON API
     assets/            stylesheet
     Dockerfile         image of the frontend, served by Caddy
+fullstack/
+  topcoat/             server-rendered page in one service (see its README)
+    Dockerfile         image of the app
 docker-bake.hcl        the multi-platform build of the backend image
-compose.yaml           Caddy (frontend) + backend + PostgreSQL
+compose.yaml           every implementation and PostgreSQL
 ```
 
 A new implementation goes next to the existing one, for example
 `backend/<framework>/` with its own `Dockerfile`, and joins the
-workspace in the root `Cargo.toml`.
+workspace in the root `Cargo.toml`. It uses the same contract: the types from
+`contract/`, the schema in `db/`, and the configuration keys and health probes
+of the axum backend.

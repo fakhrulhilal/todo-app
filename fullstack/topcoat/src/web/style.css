@@ -1,0 +1,231 @@
+:root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --text: #1c2026;
+    --muted: #68707d;
+    --border: #dfe3e8;
+    --accent: #2f6fed;
+    --accent-text: #ffffff;
+    --danger: #c0392b;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #14171c;
+        --surface: #1d2128;
+        --text: #e8eaee;
+        --muted: #98a1ae;
+        --border: #313742;
+        --accent: #6c9bff;
+        --accent-text: #10131a;
+        --danger: #ff8a7a;
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a {
+    color: var(--accent);
+}
+
+header.site,
+main {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 0 1rem;
+}
+
+header.site {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding-top: 2rem;
+    padding-bottom: 1rem;
+}
+
+.brand {
+    color: var(--text);
+    font-size: 1.75rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+main {
+    padding-bottom: 3rem;
+}
+
+h1 {
+    font-size: 1.25rem;
+}
+
+input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    color: inherit;
+    font: inherit;
+}
+
+button {
+    font: inherit;
+    cursor: pointer;
+}
+
+button.primary {
+    padding: 0.6rem 1.1rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+}
+
+div.add {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.form-error {
+    margin: 0.5rem 0 0;
+    color: var(--danger);
+}
+
+.filters {
+    display: flex;
+    gap: 0.25rem;
+    margin: 1.25rem 0 0.75rem;
+}
+
+.filters button {
+    padding: 0.25rem 0.75rem;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    cursor: pointer;
+}
+
+.filters button[aria-current="page"] {
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--border);
+    color: var(--text);
+    font-weight: 600;
+}
+
+.todos {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: var(--surface);
+}
+
+.todo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.65rem 0.85rem;
+}
+
+.todo + .todo {
+    border-top: 1px solid var(--border);
+}
+
+.todo .title {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.todo.done .title {
+    color: var(--muted);
+    text-decoration: line-through;
+}
+
+.check {
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--accent-text);
+    font-size: 0.85rem;
+    line-height: 1;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+.todo.done .check::before {
+    content: "\2713";
+}
+
+.todo.done .check {
+    border-color: var(--accent);
+    background: var(--accent);
+}
+
+.action {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-decoration: none;
+}
+
+.action:hover {
+    color: var(--accent);
+}
+
+.action.danger:hover {
+    color: var(--danger);
+}
+
+.count,
+.empty {
+    color: var(--muted);
+}
+
+.count {
+    margin: 0.75rem 0 0;
+    font-size: 0.9rem;
+}
+
+.empty {
+    padding: 2rem 0;
+    text-align: center;
+}
+
+.notice {
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: var(--surface);
+}
+
+.notice h1 {
+    margin-top: 0;
+}
+
+input.title-edit {
+    padding: 0.25rem 0.5rem;
+}

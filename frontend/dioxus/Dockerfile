@@ -18,9 +18,11 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY contract contract
 COPY frontend/dioxus frontend/dioxus
-# Not built here, but Cargo needs every workspace member to be present.
-COPY backend/axum/Cargo.toml backend/axum/Cargo.toml
-COPY backend/axum/src backend/axum/src
+# The repository's workspace lists every implementation. Here it lists only
+# what this image builds, so the other apps are neither copied nor needed.
+# Cargo.lock lists their crates too; Cargo drops them, and every version still
+# comes from Cargo.lock.
+RUN sed -i -E 's#^(default-)?members = .*#\1members = ["contract", "frontend/dioxus"]#' Cargo.toml
 
 # Where the client finds the API. Empty: at the address the site itself is
 # served from, where Caddy passes API calls on.

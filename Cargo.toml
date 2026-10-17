@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["contract", "backend/axum", "frontend/dioxus"]
+members = ["contract", "backend/axum", "frontend/dioxus", "fullstack/topcoat"]
 # `cargo build` and `cargo test` cover the server. The frontend targets
 # wasm and is built with the Dioxus CLI: `dx serve -p todo-frontend`.
-default-members = ["contract", "backend/axum"]
+default-members = ["contract", "backend/axum", "fullstack/topcoat"]
 
 [workspace.package]
 version = "0.1.0"

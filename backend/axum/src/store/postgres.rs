@@ -20,15 +20,22 @@ struct TodoRow {
 }
 
 impl PostgresStore {
-    pub async fn connect(url: &str, max_connections: u32) -> Result<Self, StoreError> {
+    /// Connects, and applies pending migrations when `migrate` is set.
+    pub async fn connect(
+        url: &str,
+        max_connections: u32,
+        migrate: bool,
+    ) -> Result<Self, StoreError> {
         let pool = PgPoolOptions::new()
             .max_connections(max_connections)
             .connect(url)
             .await?;
-        sqlx::migrate!("migrations/postgres")
-            .run(&pool)
-            .await
-            .map_err(|error| StoreError::Database(error.into()))?;
+        if migrate {
+            sqlx::migrate!("../../db/postgres/migrations")
+                .run(&pool)
+                .await
+                .map_err(|error| StoreError::Database(error.into()))?;
+        }
         Ok(Self { pool })
     }
 }

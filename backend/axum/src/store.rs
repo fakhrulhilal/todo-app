@@ -43,13 +43,15 @@ pub trait TodoStore: Send + Sync {
     async fn delete(&self, id: Uuid) -> Result<bool, StoreError>;
 }
 
-/// Connects to the configured database and applies pending migrations.
+/// Connects to the configured database. With `database.migration` on, it also
+/// applies the pending migrations from `db/<database>/`; off, the schema must
+/// be there already (compose applies `db/postgres/schema.sql` with pgschema).
 pub async fn connect(config: &DatabaseConfig) -> Result<Store, StoreError> {
     let url = config.url.trim();
 
     if url.starts_with("postgres://") || url.starts_with("postgresql://") {
         return Ok(Arc::new(
-            PostgresStore::connect(url, config.max_connections).await?,
+            PostgresStore::connect(url, config.max_connections, config.migration).await?,
         ));
     }
 
@@ -57,7 +59,7 @@ pub async fn connect(config: &DatabaseConfig) -> Result<Store, StoreError> {
     if let Some(path) = url.strip_prefix("sqlite:") {
         let path = path.strip_prefix("//").unwrap_or(path);
         if !path.is_empty() {
-            return Ok(Arc::new(TursoStore::open(path).await?));
+            return Ok(Arc::new(TursoStore::open(path, config.migration).await?));
         }
     }
 

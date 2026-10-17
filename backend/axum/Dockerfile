@@ -25,16 +25,20 @@ RUN xx-apk add --no-cache musl-dev gcc
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY contract contract
+# The migrations of both databases, compiled in.
+COPY db db
 COPY backend/axum backend/axum
-# Not built here, but Cargo needs every workspace member to be present.
-COPY frontend/dioxus/Cargo.toml frontend/dioxus/Cargo.toml
-COPY frontend/dioxus/src frontend/dioxus/src
+# The repository's workspace lists every implementation. Here it lists only
+# what this image builds, so the other apps are neither copied nor needed.
+RUN sed -i -E 's#^(default-)?members = .*#\1members = ["contract", "backend/axum"]#' Cargo.toml
 
+# No --locked: Cargo.lock lists the other apps' crates too, and Cargo drops
+# them for this smaller workspace. Every version still comes from Cargo.lock.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/src/target,id=todo-dx-target-${TARGETPLATFORM},sharing=locked \
     CARGO_PROFILE_RELEASE_STRIP=true \
-    xx-cargo build --release --locked --package todo-backend \
+    xx-cargo build --release --package todo-backend \
     && mkdir -p /out/data \
     && cp "target/$(xx-cargo --print-target-triple)/release/todo-backend" /out/todo-backend \
     && xx-verify --static /out/todo-backend

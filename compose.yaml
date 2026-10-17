@@ -1,20 +1,8 @@
 name: todo_list
-# The whole app on one address, built if needed and started with:
-#
-#   docker compose up -d        then open http://localhost:8080
-#
-#   browser ──▶ web (Caddy) ──▶ the web client (static files)
-#                          └──▶ api ──▶ db (PostgreSQL)
-#
-# The images are built from frontend/dioxus/Dockerfile and backend/axum/Dockerfile.
-# Caddy's configuration is at the end of this file.
-# After changing the code: docker compose up -d --build
-#
-# Settings (environment or .env): TODO_WEB_PORT, TODO_DB_PASSWORD.
 
 services:
   frontend-dioxus:
-    image: frontend/dioxus:latest
+    image: todo/frontend/dioxus:latest
     container_name: todo.dioxus
     build:
       context: .
@@ -35,30 +23,58 @@ services:
     restart: unless-stopped
     labels:
       dev.orbstack.domains: dx.todo.local,todo.local
+      dev.orbstack.icon: https://dioxuslabs.com/assets/favicon-dxhabbedd29055fcd0.png
 
   backend-axum:
-    image: backend/axum:latest
+    image: todo/backend/axum:latest
     container_name: todo.axum
     build:
       context: .
       dockerfile: backend/axum/Dockerfile
     environment:
       DATABASE__URL: postgres://todo:${TODO_DB_PASSWORD:-todo}@db:5432/todo
+      # db-init owns the schema here.
+      DATABASE__MIGRATION: "false"
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     labels:
       dev.orbstack.http-port: 8080
       dev.orbstack.domains: axum.api.todo.local,api.todo.local
+      dev.orbstack.icon: https://raw.githubusercontent.com/tokio-rs/website/refs/heads/master/public/img/icons/tokio.svg
     networks:
       default:
         aliases:
           - api
+          - backend
+
+  fullstack-topcoat:
+    image: todo/fullstack/topcoat:latest
+    container_name: todo.topcoat
+    build:
+      context: .
+      dockerfile: fullstack/topcoat/Dockerfile
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    ports:
+      - "${TODO_TOPCOAT_PORT:-8081}:8080"
+    restart: unless-stopped
+    labels:
+      dev.orbstack.http-port: 8080
+      dev.orbstack.domains: topcoat.todo.local
+      dev.orbstack.icon: https://raw.githubusercontent.com/tokio-rs/topcoat/refs/heads/main/media/logo-light.svg
+    environment:
+      DATABASE__URL: postgres://todo:${TODO_DB_PASSWORD:-todo}@db:5432/todo
+      # db-init owns the schema here.
+      DATABASE__MIGRATION: "false"
 
   db:
     image: postgres:17-alpine
     container_name: todo.db
+    labels:
+      dev.orbstack.domains: db.todo.local
     environment:
       POSTGRES_USER: todo
       POSTGRES_PASSWORD: ${TODO_DB_PASSWORD:-todo}
@@ -71,6 +87,62 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+
+  # pgschema compares a scratch copy of the desired schema with the real one.
+  # Its built-in scratch server would be downloaded at run time, so it gets a
+  # database of its own on this server instead. CREATE DATABASE cannot be in
+  # db's init scripts: those run only on an empty volume.
+  db-plan-init:
+    image: postgres:17-alpine
+    container_name: todo.db-plan-init
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: todo
+      PGPASSWORD: ${TODO_DB_PASSWORD:-todo}
+      PGDATABASE: todo
+    command:
+      - sh
+      - -c
+      - >-
+        psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'pgschema_plan'" | grep -q 1
+        || psql -c "CREATE DATABASE pgschema_plan"
+
+  # Brings the database to db/postgres/schema.sql, the schema every
+  # implementation shares, on every `up`. No change, no work. The apps run
+  # with database.migration off, so this is the only thing that changes it.
+  db-init:
+    image: pgplex/pgschema:1.13.3
+    container_name: todo.db-init
+    restart: "no"
+    depends_on:
+      db-plan-init:
+        condition: service_completed_successfully
+    labels:
+      dev.orbstack.icon: https://www.pgschema.com/mintlify-assets/_mintlify/favicons/pgschema/eVMn3Wop0HZadgSF/_generated/favicon/apple-touch-icon.png
+    volumes:
+      - ./db/postgres:/schema:ro
+    # pgschema reads .pgschemaignore from the working directory.
+    working_dir: /schema
+    # The connection is given as flags: pgschema 1.13.3 rejects a missing --db
+    # even when PGDATABASE is set. The passwords stay out of the command line.
+    environment:
+      PGPASSWORD: ${TODO_DB_PASSWORD:-todo}
+      PGSCHEMA_PLAN_PASSWORD: ${TODO_DB_PASSWORD:-todo}
+    command:
+      - apply
+      - --host=db
+      - --db=todo
+      - --user=todo
+      - --plan-host=db
+      - --plan-db=pgschema_plan
+      - --plan-user=todo
+      - --file=/schema/schema.sql
+      - --auto-approve
+      - --no-color
 
 configs:
   caddyfile:

@@ -26,6 +26,7 @@ async fn spawn_app() -> String {
     let store = todo_backend::store::connect(&DatabaseConfig {
         url: "sqlite::memory:".to_owned(),
         max_connections: 1,
+        migration: true,
     })
     .await
     .unwrap();

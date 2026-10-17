@@ -26,6 +26,10 @@ database:
   url: sqlite://data/todo.db
   # PostgreSQL connection pool size
   max_connections: 10
+  # Apply the pending migrations from db/<database>/ on startup. Turn it off
+  # where something else owns the schema: compose.yaml applies
+  # db/postgres/schema.sql with pgschema before the apps start.
+  migration: true
 
 log:
   # A level (trace, debug, info, warn, error) or filter directives such as "info,sqlx=warn"

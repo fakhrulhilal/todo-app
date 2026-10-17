@@ -1,0 +1,29 @@
+[package]
+name = "todo-fullstack"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+axum = { version = "0.8.9", features = ["macros"] }
+chrono = { workspace = true, features = ["clock"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+figment = { version = "0.10.19", features = ["yaml", "env"] }
+serde.workspace = true
+serde_json = "1.0.151"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "migrate", "macros", "uuid", "chrono"] }
+thiserror = "2.0.21"
+todo-contract.workspace = true
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal"] }
+topcoat = { version = "0.10.0", default-features = false, features = ["router", "view", "discover", "tower", "runtime", "asset", "serve"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+turso = { version = "0.8.2", default-features = false }
+uuid = { workspace = true, features = ["v7"] }
+
+[dev-dependencies]
+# test-util: paused time, for the health check timeout test
+tokio = { version = "1.53.2", features = ["test-util"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
+figment = { version = "0.10.19", features = ["test"] }

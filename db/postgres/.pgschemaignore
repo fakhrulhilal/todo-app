@@ -1,0 +1,6 @@
+# Tables pgschema must leave alone. Read from the working directory, which
+# compose.yaml sets to this folder.
+
+[tables]
+# The record of the migrations an app applies itself (database.migration).
+patterns = ["_sqlx_migrations"]

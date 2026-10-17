@@ -314,27 +314,29 @@ async fn todo_item(
 }
 
 // The procedures take what the browser sends and answer with a message for
-// the user. An empty message means it worked.
+// the user. An empty message means it worked. Each has a fixed path, named
+// after it, rather than a hash of where it is in the source, so it can be
+// called from outside the page too (bench.sh posts to add_todo).
 
-#[procedure]
+#[procedure("/_topcoat/runtime/procedures/add_todo")]
 async fn add_todo(cx: &Cx, title: String) -> Result<String> {
     let outcome = actions::add(app_context::<Store>(cx), &title).await;
     Ok(outcome.err().unwrap_or_default())
 }
 
-#[procedure]
+#[procedure("/_topcoat/runtime/procedures/set_completed")]
 async fn set_completed(cx: &Cx, id: String, completed: bool) -> Result<String> {
     let outcome = actions::set_completed(app_context::<Store>(cx), &id, completed).await;
     Ok(outcome.err().unwrap_or_default())
 }
 
-#[procedure]
+#[procedure("/_topcoat/runtime/procedures/rename_todo")]
 async fn rename_todo(cx: &Cx, id: String, title: String) -> Result<String> {
     let outcome = actions::rename(app_context::<Store>(cx), &id, &title).await;
     Ok(outcome.err().unwrap_or_default())
 }
 
-#[procedure]
+#[procedure("/_topcoat/runtime/procedures/delete_todo")]
 async fn delete_todo(cx: &Cx, id: String) -> Result<String> {
     let outcome = actions::remove(app_context::<Store>(cx), &id).await;
     Ok(outcome.err().unwrap_or_default())

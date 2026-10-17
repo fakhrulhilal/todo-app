@@ -1,10 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["contract", "backend/axum", "frontend/dioxus", "frontend/leptos", "fullstack/topcoat"]
+members = ["contract", "backend/axum", "backend/ntex", "frontend/dioxus", "frontend/leptos", "fullstack/topcoat"]
 # `cargo build` and `cargo test` cover the server. The frontends target
 # wasm and are built with their own tools: the Dioxus CLI
 # (`dx serve -p todo-frontend`) and Trunk (`trunk serve` in frontend/leptos).
-default-members = ["contract", "backend/axum", "fullstack/topcoat"]
+default-members = ["contract", "backend/axum", "backend/ntex", "fullstack/topcoat"]
 
 [workspace.package]
 version = "0.1.0"

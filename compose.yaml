@@ -65,8 +65,27 @@ services:
     restart: unless-stopped
     labels:
       dev.orbstack.http-port: 8080
-      dev.orbstack.domains: axum.api.todo.local,api.todo.local
+      dev.orbstack.domains: axum.api.todo.local
       dev.orbstack.icon: https://raw.githubusercontent.com/tokio-rs/website/refs/heads/master/public/img/icons/tokio.svg
+
+  backend-ntex:
+    image: todo/backend/ntex:latest
+    container_name: todo.ntex
+    build:
+      context: .
+      dockerfile: backend/ntex/Dockerfile
+    environment:
+      DATABASE__URL: postgres://todo:${TODO_DB_PASSWORD:-todo}@db:5432/todo
+      # db-init owns the schema here.
+      DATABASE__MIGRATION: "false"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    labels:
+      dev.orbstack.http-port: 8080
+      dev.orbstack.domains: ntex.api.todo.local,api.todo.local
+      dev.orbstack.icon: https://avatars.githubusercontent.com/u/62459684
     networks:
       default:
         aliases:
@@ -103,6 +122,7 @@ services:
       API_REFERENCE_CONFIG: >-
         {"servers": [
           {"url": "https://api.todo.local", "description": "Public API"},
+          {"url": "https://ntex.api.todo.local", "description": "Public API on ntex"},
         ]}
     ports:
       - "${TODO_DOCS_PORT:-8084}:8080"

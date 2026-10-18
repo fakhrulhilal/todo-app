@@ -118,6 +118,7 @@ pub async fn home(cx: &Cx) -> Result<impl View> {
     let revision = signal(cx, || 0usize);
     let draft = signal(cx, String::new);
     let error = signal(cx, String::new);
+    let home_address = href!(home).resolve(cx).to_string();
 
     Ok(view! {
         <div class="add">
@@ -162,10 +163,20 @@ pub async fn home(cx: &Cx) -> Result<impl View> {
         <nav class="filters" aria-label="Filter todos">
             for option in StatusFilter::VALUES {
                 let name = option.as_str();
+                // The address the other clients' filter links lead to, so a
+                // reload or a shared link opens the same filter.
+                let address = match option {
+                    StatusFilter::All => home_address.clone(),
+                    _ => format!("{home_address}?filter={name}"),
+                };
                 <button
                     type="button"
                     :aria-current=$(if filter.get() == name { "page" } else { "false" })
-                    @click=$(|_e| filter.set(name.to_owned()))
+                    @click=$(|_e| {
+                        filter.set(name.to_owned());
+                        // Replaced, not pushed: going back has no filter to restore.
+                        raw!("history.replaceState(null, '', ${address})");
+                    })
                 >
                     (filter_label(option))
                 </button>
@@ -221,7 +232,10 @@ async fn todo_list(
         if count == 0 {
             <p class="empty">"Nothing to show here."</p>
         } else {
-            <p class="count">(count) (if count == 1 { " todo" } else { " todos" })</p>
+            <p class="count">
+                (count)
+                (if count == 1 { " todo" } else { " todos" })
+            </p>
         }
     })
 }
@@ -237,6 +251,7 @@ async fn todo_item(
 ) -> Result<impl View> {
     let editing = signal(cx, || false);
     let draft = signal(cx, || title.clone());
+    let field = format!("title-{id}");
 
     Ok(view! {
         <li class=(class!("todo", "done" if completed)) id=(id.clone())>
@@ -256,6 +271,7 @@ async fn todo_item(
 
             <span class="title" :hidden=$(editing.get())>(&title)</span>
             <input
+                id=(field.clone())
                 class="title-edit"
                 type="text"
                 aria-label="Title"
@@ -263,13 +279,31 @@ async fn todo_item(
                 :hidden=$(!editing.get())
                 :value=$(draft.get())
                 @input=$(|e: Event| draft.set(e.target.value))
+                @keydown=$(async move |e: Event| {
+                    // Enter saves, Escape leaves the todo as it was.
+                    if e.key == "Enter" {
+                        let message = rename_todo(id.to_owned(), draft.get()).await;
+                        if message.is_empty() {
+                            editing.set(false);
+                            revision.increment();
+                        }
+                        error.set(message);
+                    } else if e.key == "Escape" {
+                        draft.set(title.to_owned());
+                        editing.set(false);
+                    }
+                })
             >
 
             <button
                 type="button"
                 class="action"
                 :hidden=$(editing.get())
-                @click=$(|_e| editing.set(true))
+                @click=$(|_e| {
+                    editing.set(true);
+                    // Once the field is shown, the cursor goes into it.
+                    raw!("setTimeout(() => document.getElementById(${field})?.focus())");
+                })
             >
                 "Edit"
             </button>
@@ -292,7 +326,10 @@ async fn todo_item(
                 type="button"
                 class="action"
                 :hidden=$(!editing.get())
-                @click=$(|_e| editing.set(false))
+                @click=$(|_e| {
+                    draft.set(title.to_owned());
+                    editing.set(false);
+                })
             >
                 "Cancel"
             </button>

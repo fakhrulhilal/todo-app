@@ -1,0 +1,16 @@
+{
+  "name": "todo-ui-tests",
+  "private": true,
+  "description": "End-to-end tests of the web clients against the compose stack",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:dioxus": "playwright test --project=dioxus",
+    "test:leptos": "playwright test --project=leptos",
+    "test:topcoat": "playwright test --project=topcoat",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

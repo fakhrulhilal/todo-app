@@ -6,13 +6,13 @@ projects of the same app can sit next to it and share the contract. An app
 that serves its own page and API in one service is a **fullstack**
 implementation, in a folder beside `backend/` and `frontend/`.
 
-| Folder             | What                                                                                                             | Built with |
-|--------------------|------------------------------------------------------------------------------------------------------------------|------------|
-| `contract/`        | The todo model and validation, compiled by both sides                                                            | serde      |
-| `backend/axum/`    | The JSON API server with its OpenAPI document, shipped as a container image                                      | [axum](https://github.com/tokio-rs/axum) |
-| `backend/ntex/`    | The same API, serving the same OpenAPI document, on the [compio](https://github.com/compio-rs/compio) runtime (io_uring on Linux) instead of tokio | [ntex](https://ntex.rs) |
-| `frontend/dioxus/` | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
-| `frontend/leptos/` | The same web client, styled with Tailwind CSS and [Rust/UI](https://www.rust-ui.com) components, with API data cached by [leptos-fetch](https://github.com/zakstucke/leptos-fetch). See its [README](frontend/leptos/README.md) | [Leptos](https://leptos.dev) |
+| Folder               | What                                                                                                             | Built with |
+|----------------------|------------------------------------------------------------------------------------------------------------------|------------|
+| `contract/`          | The todo model and validation, compiled by every side                                                            | serde      |
+| `backend/axum/`      | The JSON API server, see [Backend](#backend)                                                                     | [axum](https://github.com/tokio-rs/axum) |
+| `backend/ntex/`      | The same API on the [compio](https://github.com/compio-rs/compio) runtime instead of tokio, see [ntex](#ntex)   | [ntex](https://ntex.rs) |
+| `frontend/dioxus/`   | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
+| `frontend/leptos/`   | The same web client, styled with Tailwind CSS and [Rust/UI](https://www.rust-ui.com) components, with API data cached by [leptos-fetch](https://github.com/zakstucke/leptos-fetch). See its [README](frontend/leptos/README.md) | [Leptos](https://leptos.dev) |
 | `fullstack/topcoat/` | Server-rendered page in one binary, with no JSON API: the list is a Topcoat shard and the actions are procedures. See its [README](fullstack/topcoat/README.md) | [Topcoat](https://github.com/tokio-rs/topcoat) |
 
 ```text
@@ -22,58 +22,22 @@ browser ──▶ /api/v1/todos (JSON) ──▶ backend ──▶ database
 
 The frontend has no server of its own. Adding, completing, renaming, deleting
 and filtering are calls to the JSON API, and the page is updated in place.
-The HTTP API itself is described by the OpenAPI document at
-`/api/openapi.json`. `cargo test` writes a copy to
-[`contract/openapi.json`](contract/openapi.json) from the axum backend; commit
-it when it changes. A second backend or frontend only has to follow that
-document, and reuse the `contract/` crate where it is also written in Rust.
-
-## Requirements for a backend
-
-Every backend under `backend/` meets these, whatever its framework. They are
-what makes one backend replaceable by another behind the same clients and
-the same database:
-
-1. **It serves the OpenAPI document.** `GET /api/openapi.json` returns the
-   API as an OpenAPI 3.1 document, generated from the code, not written by
-   hand. It must be [`contract/openapi.json`](contract/openapi.json): the
-   axum backend's tests write that file, and every other backend's tests
-   check that what it serves is equal to it.
-2. **Configuration from YAML, the environment and the command line.** The
-   same keys in all three, merged in the order built-in defaults, YAML file,
-   environment variables, arguments, the later winning. `server.port` is
-   `SERVER__PORT` and `--server-port`. See [Configuration](#configuration).
-3. **Plain-text logs for local work, JSON in production.** `log.format` is
-   `text`, `json`, or `auto`, which picks text when `env` is `local` and one
-   JSON object per line when it is `production`.
-4. **Every error is a problem.** Each error response, including the ones the
-   framework raises itself (unknown path, wrong method, malformed body, bad
-   path or query value), is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
-   `application/problem+json` object. See [Errors](#errors).
-5. **PostgreSQL in containers, SQLite by default.** Without configuration it
-   stores todos in `sqlite://data/todo.db`; given a `postgres://` URL, as in
-   [`compose.yaml`](compose.yaml), it uses PostgreSQL. Both use the shared
-   schema in [`db/`](db). See [Database](#database).
-
-Both backends also serve the [health probes](#health-checks), and every
-backend and fullstack app is measured with [`bench.sh`](#benchmark).
+Any frontend works with any backend: both follow the
+[OpenAPI document](#openapi-document).
 
 ## Run locally
-
-Needs the [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/)
-(`dx`), the same version as the `dioxus` crate.
 
 The repository is one Cargo workspace. Run every command in this README from
 the repository root, and pick the part with `-p <package>`:
 
-| Folder             | Package         |
-|--------------------|-----------------|
-| `contract/`        | `todo-contract` |
-| `backend/axum/`    | `todo-backend`  |
-| `backend/ntex/`    | `todo-backend-ntex` |
-| `frontend/dioxus/` | `todo-frontend` |
-| `frontend/leptos/` | `todo-frontend-leptos` |
-| `fullstack/topcoat/` | `todo-fullstack` |
+| Folder               | Package                |
+|----------------------|------------------------|
+| `contract/`          | `todo-contract`        |
+| `backend/axum/`      | `todo-backend`         |
+| `backend/ntex/`      | `todo-backend-ntex`    |
+| `frontend/dioxus/`   | `todo-frontend`        |
+| `frontend/leptos/`   | `todo-frontend-leptos` |
+| `fullstack/topcoat/` | `todo-fullstack`       |
 
 ```sh
 cargo run -p todo-backend                    # the backend, on http://127.0.0.1:8080
@@ -82,25 +46,22 @@ dx serve -p todo-frontend --port 8081        # the frontend, on http://127.0.0.1
 (cd frontend/leptos && trunk serve)          # the Leptos frontend, on http://127.0.0.1:8082
 ```
 
-The Leptos frontend needs [Trunk](https://trunkrs.dev) instead of `dx`; Trunk
-runs from the frontend's folder, where its `Trunk.toml` is.
+The Dioxus frontend needs the
+[Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/) (`dx`), the
+same version as the `dioxus` crate. The Leptos frontend needs
+[Trunk](https://trunkrs.dev) instead, run from its folder, where its
+`Trunk.toml` is.
 
 Todos are stored in `data/todo.db`, relative to where the backend is started
-(the repository root). Both backends default to that same file, so run one
-at a time or give one another `--database-url`. SQLite is for local work only; containers use
-PostgreSQL (see [Database](#database)). `cargo test` runs the contract and backend tests; the
-frontend only builds for WebAssembly, so Cargo skips it unless asked.
+(the repository root). Both backends default to that same file, so run one at
+a time or give one another `--database-url`. `cargo test` runs the contract,
+backend and Topcoat tests; the frontends only build for WebAssembly, so Cargo
+skips them unless asked.
 
 The client is told where the API is when it is built, through `TODO_API_URL`.
 Without it, it calls `http://127.0.0.1:8080`. Set to nothing
-(`TODO_API_URL=`), it calls the address the site itself is served from.
-
-The "API docs" link opens `/docs/` on the site's own address. The clients do
-not serve it: the deployment does (see
-[Docker Compose](#run-everything-with-docker-compose)), so under `dx serve` or
-`trunk serve` the link has nothing behind it.
-
-If port 8080 is taken, move the API and tell the client:
+(`TODO_API_URL=`), it calls the address the site itself is served from. If
+port 8080 is taken, move the API and tell the client:
 
 ```sh
 cargo run -p todo-backend -- --server-port 8090
@@ -108,50 +69,253 @@ TODO_API_URL=http://127.0.0.1:8090 dx serve -p todo-frontend --port 8081
 (cd frontend/leptos && TODO_API_URL=http://127.0.0.1:8090 trunk serve)
 ```
 
-## Build
+The "API docs" link opens `/docs/` on the site's own address. The clients do
+not serve it: the deployment does (see
+[Docker Compose](#run-everything-with-docker-compose)), so under `dx serve` or
+`trunk serve` the link has nothing behind it.
 
-The two parts are built separately, with different tools, both from the
-repository root.
+## Backend
 
-### Backend (`backend/axum/`)
+Every backend under `backend/` serves the same API in the same way, whatever
+its framework, so one can replace another behind the same clients and the
+same database. Five things are required of each, marked **Required** below:
+the OpenAPI document, problem details for errors, configuration, logging and
+the databases. The health probes are shared as well.
+
+| URL                 | What                                                 |
+|---------------------|------------------------------------------------------|
+| `/api/v1/todos`     | JSON API                                             |
+| `/api/openapi.json` | OpenAPI 3.1 document (`/` redirects here)            |
+| `/health/live`      | Liveness probe: is the process serving requests?     |
+| `/health/ready`     | Readiness probe: do the things it depends on answer? |
+
+```sh
+curl -X POST localhost:8080/api/v1/todos -H 'content-type: application/json' -d '{"title":"Buy milk"}'
+curl 'localhost:8080/api/v1/todos?status=active'
+curl -X PATCH localhost:8080/api/v1/todos/<id> -H 'content-type: application/json' -d '{"completed":true}'
+curl -X DELETE localhost:8080/api/v1/todos/<id>
+```
+
+### OpenAPI document
+
+**Required:** `GET /api/openapi.json` returns the API as an OpenAPI 3.1
+document, generated from the code, not written by hand, and equal to
+[`contract/openapi.json`](contract/openapi.json). That file is the contract:
+the axum backend's tests write it (commit it when it changes), and every other
+backend's tests check that what it serves is equal to it. So when the API
+changes, run the axum backend's tests first. A new client only has to follow
+that document, and can reuse the `contract/` crate where it is written in Rust.
+
+### Errors
+
+**Required:** every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
+problem details object with the `application/problem+json` content type,
+including the ones the framework raises itself (unknown path, wrong method,
+malformed body, bad path or query value):
+
+```json
+{
+  "type": "about:blank",
+  "title": "Unprocessable Entity",
+  "status": 422,
+  "detail": "One or more members of the request are invalid.",
+  "instance": "/api/v1/todos",
+  "errors": { "title": ["must not be empty"] }
+}
+```
+
+| Member     | What                                                              |
+|------------|-------------------------------------------------------------------|
+| `type`     | Always `about:blank`: the status code says what kind of problem   |
+| `title`    | The name of the status code                                       |
+| `status`   | The status code                                                   |
+| `detail`   | What went wrong this time. Left out when there is nothing to add  |
+| `instance` | The path that was requested, without the query string             |
+| `errors`   | Validation failures only (422): member name to list of messages, as in ASP.NET Core's `ValidationProblemDetails` |
+
+### Health checks
+
+The probes follow [ASP.NET Core's health checks](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks).
+A probe answers with one word as plain text:
+
+| Answer      | Status | Meaning                                              |
+|-------------|--------|------------------------------------------------------|
+| `Healthy`   | 200    | Every check passed                                   |
+| `Degraded`  | 200    | Working, but a check reports it is not at its best   |
+| `Unhealthy` | 503    | A check failed                                       |
+
+With several checks, the answer is the worst of them. `/health/live` runs no
+checks, so it is `Healthy` whenever the process answers. `/health/ready` runs
+all of them (today: `database`). A check that takes longer than 2 seconds
+counts as failed. Responses are never cached.
+
+Add `?format=json` for the result of each check:
+
+```sh
+curl 'localhost:8080/health/ready?format=json'
+```
+
+```json
+{
+  "status": "Healthy",
+  "results": {
+    "database": {
+      "status": "Healthy",
+      "description": "The database answered.",
+      "data": {}
+    }
+  }
+}
+```
+
+Checks are registered in each backend's `src/api.rs`. To add one, implement
+`HealthCheck` and register it by name. A check registered with
+`add_with_failure_status(..., HealthStatus::Degraded, ...)` degrades the
+service when it fails instead of making it unhealthy.
+
+### Configuration
+
+**Required:** settings come from YAML, the environment and the command line,
+with the same keys in all three. They are read from four sources and merged,
+in the manner of .NET's options pattern. Later ones win:
+
+1. Built-in defaults: `config/default.yaml` in the backend's folder
+2. A YAML file: `config.yaml` in the working directory if there is one, or the
+   file named by `--config` / `CONFIG`, which must exist
+3. Environment variables
+4. Command-line arguments
+
+Every setting has one name, its key in the YAML file. The other two follow
+from it:
+
+- **Environment variable:** the key in upper case, with each dot as `__`.
+- **Argument:** the key with each dot and underscore as `-`.
+
+| YAML key                   | Environment variable        | Argument                     | Default                 |
+|----------------------------|-----------------------------|------------------------------|-------------------------|
+| `env`                      | `ENV`                       | `--env`                      | `local`                 |
+| `server.host`              | `SERVER__HOST`              | `--server-host`              | `127.0.0.1`             |
+| `server.port`              | `SERVER__PORT`              | `--server-port`, `-p`        | `8080`                  |
+| `server.cors_origins`      | `SERVER__CORS_ORIGINS`      | `--server-cors-origins`      | `*`                     |
+| `database.url`             | `DATABASE__URL`             | `--database-url`             | `sqlite://data/todo.db` |
+| `database.max_connections` | `DATABASE__MAX_CONNECTIONS` | `--database-max-connections` | `10`                    |
+| `database.migration`       | `DATABASE__MIGRATION`       | `--database-migration`       | `true`                  |
+| `log.level`                | `LOG__LEVEL`                | `--log-level`                | `info`                  |
+| `log.format`               | `LOG__FORMAT`               | `--log-format`               | `auto`                  |
+
+The same setting, three ways:
+
+```yaml
+# config.yaml
+server:
+  port: 9000
+```
+
+```sh
+SERVER__PORT=9000 todo-backend
+todo-backend --server-port 9000
+```
+
+`--help` lists the arguments. A value of the wrong type stops the server at
+startup with a message that names the setting and where the value came from.
+
+`server.cors_origins` names the sites whose pages may call the API from a
+browser, separated by commas. The default `*` allows any site, which suits
+local work; in production, name the site that hosts the frontend.
+
+### Logging
+
+**Required:** plain text for local work, one JSON object per line in
+production. `log.format` is `text`, `json` or `auto`, which picks text when
+`env` is `local` and JSON when it is `production`. `log.level` takes a level or
+filter directives such as `info,sqlx=warn`. Requests for the health probes are
+logged at `debug`.
+
+### Databases
+
+**Required:** SQLite by default, for local work, and PostgreSQL when given a
+`postgres://` URL, as in containers. Both use the shared schema; see
+[Database](#database) for why and how.
+
+| `database.url`                   | Storage                                                        |
+|----------------------------------|----------------------------------------------------------------|
+| `sqlite://data/todo.db`          | SQLite-compatible file, using the embedded [Turso](https://github.com/tursodatabase/turso) engine |
+| `sqlite:///var/lib/todo/todo.db` | The same, with an absolute path                                |
+| `sqlite::memory:`                | In memory, lost on exit (quote it in YAML)                     |
+| `postgres://user:pass@host/db`   | PostgreSQL                                                     |
+
+With `database.migration` on, the backend applies the pending migrations on
+startup, from [`db/sqlite/`](db/sqlite) or
+[`db/postgres/migrations/`](db/postgres/migrations). Turn it off where
+something else owns the schema, as compose does (see [Schema](#schema)).
+
+### Build
 
 1. Install [Rust](https://rustup.rs).
-2. Run the tests:
+2. Run the tests and build the release binary, here of the axum backend
+   (`-p todo-backend-ntex` for ntex):
 
    ```sh
    cargo test -p todo-backend
-   ```
-
-3. Build the release binary:
-
-   ```sh
    cargo build --release -p todo-backend
    ```
 
-4. The result is one executable, `target/release/todo-backend`, with the default
-   configuration and the migrations of both databases compiled in. Run it:
+3. The result is one executable, `target/release/todo-backend`, with the
+   default configuration and the migrations of both databases compiled in:
 
    ```sh
    ./target/release/todo-backend --server-host 0.0.0.0 --server-port 8080
    ```
 
-To ship it as a container instead, see
-[API container image](#api-container-image).
+### Container image
 
-### Backend (`backend/ntex/`)
+Each backend's `Dockerfile` builds an image `FROM scratch` with two static
+binaries: the API and [tiny-hc](https://github.com/fakhrulhilal/tiny-hc) for
+the health check. In the image the API runs as user `10001`, listens on
+`0.0.0.0:8080` and uses `env: production` (JSON logs). Give it `DATABASE__URL`
+for PostgreSQL, as compose does; without it, it falls back to SQLite in the
+`/data` volume, which is only good for a quick try. Override any setting with
+the environment variables above.
 
-The same steps with `-p todo-backend-ntex`; the binary is
-`target/release/todo-backend-ntex` and takes the same arguments. Its tests
-check that it serves exactly [`contract/openapi.json`](contract/openapi.json),
-so run the axum backend's tests first when the API changes. The image is built
-from [`backend/ntex/Dockerfile`](backend/ntex/Dockerfile), the same way as the
-axum one:
+```sh
+docker run --rm -p 8080:8080 \
+  -e DATABASE__URL=postgres://todo:todo@<host>:5432/todo \
+  ghcr.io/<user>/todo-dx-api
+```
+
+The image's `HEALTHCHECK` calls `/health/ready`, so the container is reported
+unhealthy while its database is unreachable. If you change `SERVER__PORT`,
+override the health check to match.
+
+An image is built for `linux/amd64` and `linux/arm64` (Docker on Apple
+silicon) together, as one multi-platform image under one tag; the
+architecture is never part of the tag. Both platforms are cross-compiled,
+without emulation. For the axum backend,
+[`docker-bake.hcl`](docker-bake.hcl) fixes the platforms, so build it with
+`bake`:
+
+```sh
+docker buildx bake                                                    # build both platforms
+IMAGE=ghcr.io/<user>/todo-dx-api TAG=1.0.0 docker buildx bake --push  # build and publish
+docker buildx bake --load                                             # into the local image store
+```
+
+The ntex image is built directly:
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 -f backend/ntex/Dockerfile .
 ```
 
-How it differs from the axum backend inside:
+A multi-platform build needs a `docker-container` builder
+(`docker buildx create --use`) or Docker's containerd image store, and
+`--load` works only with the containerd image store.
+[`.github/workflows/image.yml`](.github/workflows/image.yml) runs the tests
+and publishes the axum image to `ghcr.io/<owner>/<repository>-api`: `latest`
+and the branch name on `main`, and the version for a `v1.2.3` tag.
+
+### ntex
+
+The ntex backend has the same layout as the axum one. Inside, it differs in:
 
 - **Runtime:** every ntex worker runs a [compio](https://github.com/compio-rs/compio)
   runtime: io_uring on Linux, kqueue on macOS, IOCP on Windows. Where io_uring
@@ -173,7 +337,9 @@ How it differs from the axum backend inside:
 - **Stopping:** SIGTERM (`docker stop`) lets open requests finish, for up to
   8 seconds; Ctrl+C stops at once.
 
-### Frontend (`frontend/dioxus/`)
+## Frontend
+
+### Build `frontend/dioxus/`
 
 1. Add the WebAssembly target:
 
@@ -212,7 +378,7 @@ How it differs from the axum backend inside:
 The first `dx` build is slow: it compiles every dependency for WebAssembly,
 and `dx` may make rustup download the nightly toolchain.
 
-### Frontend (`frontend/leptos/`)
+### Build `frontend/leptos/`
 
 1. Add the WebAssembly target:
 
@@ -246,6 +412,30 @@ and `dx` may make rustup download the nightly toolchain.
 
 The site expects to be served from the root of its domain.
 
+### Deploy to GitHub Pages
+
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) builds and
+publishes the Dioxus client on every push to `main`. Set up the repository
+once:
+
+1. **Settings > Pages > Source**: GitHub Actions.
+2. **Settings > Secrets and variables > Actions > Variables**: add
+   `TODO_API_URL`, the public address of the API, such as
+   `https://todo-api.example.com`. It must be `https`, because Pages is, and
+   browsers block calls from an `https` page to an `http` API.
+3. On the API, set `SERVER__CORS_ORIGINS` to the site's origin, such as
+   `https://<user>.github.io`.
+
+The workflow handles the two things Pages needs from a single-page app:
+
+- A project site lives under `/<repository>/`, so the bundle is built with
+  that base path.
+- `index.html` is copied to `404.html`, so unknown paths are rendered by the
+  app instead of GitHub's error page.
+
+To build the same files by hand, follow the
+[Dioxus build](#build-frontenddioxus) with `--base-path <repository>`.
+
 ## Database
 
 Every implementation reads and writes the same `todos` table. Its schema is
@@ -264,7 +454,7 @@ implementations compatible with each other in both ways they can meet:
   todos whichever one answers.
 - **Directly through the database:** several apps share one database at the
   same time, as the axum and ntex backends and the Topcoat app do in
-  [`compose.yaml`](compose.yaml). A todo added in one shows up in the other.
+  [`compose.yaml`](compose.yaml). A todo added in one shows up in the others.
 
 SQLite cannot do the second: each container would have its own file, and the
 apps would drift apart. So in [`compose.yaml`](compose.yaml) every service gets
@@ -344,23 +534,21 @@ checksums and refuses to start on a changed file. To check that (1) and (2)
 agree, let an app migrate an empty PostgreSQL, then run `pgschema plan`
 against it: it must report no changes.
 
-A new implementation reads the same tables. It applies the numbered
-migrations of its database when `database.migration` is on, and nothing when
-it is off.
-
 ## Run everything with Docker Compose
 
 [`compose.yaml`](compose.yaml) builds and runs every implementation against
-one PostgreSQL database:
+one PostgreSQL database (`db`):
 
 - **Dioxus**, on <http://localhost:8080> (<https://todo.local> under
   [OrbStack](https://orbstack.dev)): [Caddy](https://caddyserver.com) serves
   the frontend and passes `/api` and `/health` on to the
   [active backend](#switch-the-backend-behind-the-clients). The browser sees a
-  single site, so CORS is not involved.
-- **Topcoat**, on <http://localhost:8081>: the server-rendered app.
+  single site, so CORS is not involved. The image compiles the client with an
+  empty `TODO_API_URL`, so that it calls the address it was loaded from;
+  Caddy's configuration is inside `compose.yaml`.
 - **Leptos**, on <http://localhost:8083> (<https://leptos.todo.local>): the
-  Leptos client, set up like the Dioxus one, against the same backend.
+  Leptos client, built and served the same way.
+- **Topcoat**, on <http://localhost:8081>: the server-rendered app.
 - **Both backends**, axum and ntex, always run. Each has a domain of its own,
   <https://axum.api.todo.local> and <https://ntex.api.todo.local>, and
   publishes no port. One of them is the active backend: the clients call it,
@@ -376,24 +564,11 @@ one PostgreSQL database:
 docker compose up -d
 ```
 
-That is the only step. The first run builds the five images, which takes a
-few minutes; later runs start at once. After changing the code, rebuild with
-`docker compose up -d --build`.
-
-The images are built from
-- [`frontend/dioxus/Dockerfile`](frontend/dioxus/Dockerfile): the client,
-  compiled with an empty `TODO_API_URL` so that it calls the address it was
-  loaded from, and served by Caddy. Caddy's configuration is inside
-  `compose.yaml`.
-- [`frontend/leptos/Dockerfile`](frontend/leptos/Dockerfile): the Leptos
-  client, built the same way with Trunk.
-- [`backend/axum/Dockerfile`](backend/axum/Dockerfile): the API.
-- [`backend/ntex/Dockerfile`](backend/ntex/Dockerfile): the API on ntex.
-- [`fullstack/topcoat/Dockerfile`](fullstack/topcoat/Dockerfile): the
-  fullstack app.
-
-Every service uses the one PostgreSQL database (`db`), so a todo added in
-one app shows up in the other. See [Database](#database).
+That is the only step. The first run builds the five images from each
+part's `Dockerfile`, which takes a few minutes; later runs start at once.
+After changing the code, rebuild with `docker compose up -d --build`. Compose
+builds the images for the machine it runs on; to publish, see
+[Container image](#container-image).
 
 | Variable            | What                                    | Default |
 |---------------------|-----------------------------------------|---------|
@@ -403,10 +578,6 @@ one app shows up in the other. See [Database](#database).
 | `TODO_DB_PASSWORD`  | Password of the PostgreSQL user         | `todo`  |
 
 Todos are kept in the `db-data` volume; `docker compose down -v` deletes them.
-
-Compose builds the images for the machine it runs on. Images to publish are
-built for both platforms with `docker buildx bake`
-(see [API container image](#api-container-image)).
 
 ### Switch the backend behind the clients
 
@@ -450,224 +621,6 @@ clients together with whichever backend is active, so first make the backend
 under test the active one, and verify it as above. To test the clients
 against every backend, switch and test once per backend.
 
-## Deploy the frontend to GitHub Pages
-
-[`.github/workflows/pages.yml`](.github/workflows/pages.yml) builds and
-publishes the client on every push to `main`. Set up the repository once:
-
-1. **Settings > Pages > Source**: GitHub Actions.
-2. **Settings > Secrets and variables > Actions > Variables**: add
-   `TODO_API_URL`, the public address of the API, such as
-   `https://todo-api.example.com`. It must be `https`, because Pages is, and
-   browsers block calls from an `https` page to an `http` API.
-3. On the API, set `SERVER__CORS_ORIGINS` to the site's origin, such as
-   `https://<user>.github.io`.
-
-The workflow handles the two things Pages needs from a single-page app:
-
-- A project site lives under `/<repository>/`, so the bundle is built with
-  that base path.
-- `index.html` is copied to `404.html`, so unknown paths are rendered by the
-  app instead of GitHub's error page.
-
-To build the same files by hand, follow the [frontend build](#frontend-frontenddioxus)
-steps with `--base-path <repository>`.
-
-## API
-
-| URL                 | What                                                |
-|---------------------|-----------------------------------------------------|
-| `/api/v1/todos`     | JSON API                                            |
-| `/api/openapi.json` | OpenAPI 3.1 document (`/` redirects here)           |
-| `/health/live`      | Liveness probe: is the process serving requests?    |
-| `/health/ready`     | Readiness probe: do the things it depends on answer? |
-
-```sh
-curl -X POST localhost:8080/api/v1/todos -H 'content-type: application/json' -d '{"title":"Buy milk"}'
-curl 'localhost:8080/api/v1/todos?status=active'
-curl -X PATCH localhost:8080/api/v1/todos/<id> -H 'content-type: application/json' -d '{"completed":true}'
-curl -X DELETE localhost:8080/api/v1/todos/<id>
-```
-
-### Errors
-
-Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem
-details object with the `application/problem+json` content type, including
-the ones the router raises itself (unknown path, wrong method, malformed
-body, bad path or query value):
-
-```json
-{
-  "type": "about:blank",
-  "title": "Unprocessable Entity",
-  "status": 422,
-  "detail": "One or more members of the request are invalid.",
-  "instance": "/api/v1/todos",
-  "errors": { "title": ["must not be empty"] }
-}
-```
-
-| Member     | What                                                              |
-|------------|-------------------------------------------------------------------|
-| `type`     | Always `about:blank`: the status code says what kind of problem   |
-| `title`    | The name of the status code                                       |
-| `status`   | The status code                                                   |
-| `detail`   | What went wrong this time. Left out when there is nothing to add  |
-| `instance` | The path that was requested, without the query string             |
-| `errors`   | Validation failures only (422): member name to list of messages, as in ASP.NET Core's `ValidationProblemDetails` |
-
-### Health checks
-
-The probes follow [ASP.NET Core's health checks](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks).
-A probe answers with one word as plain text:
-
-| Answer      | Status | Meaning                                              |
-|-------------|--------|------------------------------------------------------|
-| `Healthy`   | 200    | Every check passed                                   |
-| `Degraded`  | 200    | Working, but a check reports it is not at its best   |
-| `Unhealthy` | 503    | A check failed                                       |
-
-With several checks, the answer is the worst of them. `/health/live` runs no
-checks, so it is `Healthy` whenever the process answers. `/health/ready` runs
-all of them (today: `database`). A check that takes longer than 2 seconds
-counts as failed. Responses are never cached.
-
-Add `?format=json` for the result of each check:
-
-```sh
-curl 'localhost:8080/health/ready?format=json'
-```
-
-```json
-{
-  "status": "Healthy",
-  "results": {
-    "database": {
-      "status": "Healthy",
-      "description": "The database answered.",
-      "data": {}
-    }
-  }
-}
-```
-
-Checks are registered in [`backend/axum/src/api.rs`](backend/axum/src/api.rs)
-and [`backend/ntex/src/api.rs`](backend/ntex/src/api.rs). To add one,
-implement `HealthCheck` and register it by name. A check registered with
-`add_with_failure_status(..., HealthStatus::Degraded, ...)` degrades the
-service when it fails instead of making it unhealthy.
-
-### Configuration
-
-Settings are read from four sources and merged, in the manner of .NET's
-options pattern. Later ones win:
-
-1. Built-in defaults: [`backend/axum/config/default.yaml`](backend/axum/config/default.yaml)
-   (the ntex backend has the same file in `backend/ntex/config/`)
-2. A YAML file: `config.yaml` in the working directory if there is one, or the
-   file named by `--config` / `CONFIG`, which must exist
-3. Environment variables
-4. Command-line arguments
-
-Every setting has one name, its key in the YAML file. The other two follow
-from it:
-
-- **Environment variable:** the key in upper case, with each dot as `__`.
-- **Argument:** the key with each dot and underscore as `-`.
-
-| YAML key                   | Environment variable        | Argument                     | Default                 |
-|----------------------------|-----------------------------|------------------------------|-------------------------|
-| `env`                      | `ENV`                       | `--env`                      | `local`                 |
-| `server.host`              | `SERVER__HOST`              | `--server-host`              | `127.0.0.1`             |
-| `server.port`              | `SERVER__PORT`              | `--server-port`, `-p`        | `8080`                  |
-| `server.cors_origins`      | `SERVER__CORS_ORIGINS`      | `--server-cors-origins`      | `*`                     |
-| `database.url`             | `DATABASE__URL`             | `--database-url`             | `sqlite://data/todo.db` |
-| `database.max_connections` | `DATABASE__MAX_CONNECTIONS` | `--database-max-connections` | `10`                    |
-| `database.migration`       | `DATABASE__MIGRATION`       | `--database-migration`       | `true`                  |
-| `log.level`                | `LOG__LEVEL`                | `--log-level`                | `info`                  |
-| `log.format`               | `LOG__FORMAT`               | `--log-format`               | `auto`                  |
-
-The same setting, three ways:
-
-```yaml
-# config.yaml
-server:
-  port: 9000
-```
-
-```sh
-SERVER__PORT=9000 todo-backend
-todo-backend --server-port 9000
-```
-
-Both backends take the same settings. `todo-backend --help` lists the arguments. A value of the wrong type stops the
-server at startup with a message that names the setting and where the value
-came from.
-
-`server.cors_origins` names the sites whose pages may call the API from a
-browser, separated by commas. The default `*` allows any site, which suits
-local work; in production, name the site that hosts the frontend.
-
-| Database URL                     | Storage                                                        |
-|----------------------------------|----------------------------------------------------------------|
-| `sqlite://data/todo.db`          | SQLite-compatible file, using the embedded [Turso](https://github.com/tursodatabase/turso) engine |
-| `sqlite:///var/lib/todo/todo.db` | The same, with an absolute path                                |
-| `sqlite::memory:`                | In memory, lost on exit (quote it in YAML)                     |
-| `postgres://user:pass@host/db`   | PostgreSQL                                                     |
-
-With `database.migration` on, the app applies the pending migrations on
-startup, from [`db/sqlite/`](db/sqlite) or
-[`db/postgres/migrations/`](db/postgres/migrations). Turn it off where
-something else owns the schema, as compose does (see [Schema](#schema)).
-
-`log.format` is `text` (plain text), `json` (one JSON object per line) or
-`auto`, which picks text when `env` is `local` and JSON when it is
-`production`. `log.level` takes a level or filter directives such as
-`info,sqlx=warn`. Requests for the health probes are logged at `debug`.
-
-## API container image
-
-The image is `FROM scratch` with two static binaries: the API and
-[tiny-hc](https://github.com/fakhrulhilal/tiny-hc) for the health check.
-
-It is always built for `linux/amd64` and `linux/arm64` (Docker on Apple
-silicon) together, as one multi-platform image under one tag. The
-architecture is never part of the tag: Docker pulls the matching variant.
-[`docker-bake.hcl`](docker-bake.hcl) fixes the platforms, so build with
-`bake` instead of `docker build`:
-
-```sh
-docker buildx bake                                                    # build both platforms
-IMAGE=ghcr.io/<user>/todo-dx-api TAG=1.0.0 docker buildx bake --push  # build and publish
-docker buildx bake --load                                             # into the local image store
-```
-
-A multi-platform build needs a `docker-container` builder
-(`docker buildx create --use`) or Docker's containerd image store, and
-`--load` works only with the containerd image store. Both platforms are
-cross-compiled, without emulation.
-
-[`.github/workflows/image.yml`](.github/workflows/image.yml) runs the tests
-and publishes the image to `ghcr.io/<owner>/<repository>-api`: `latest` and
-the branch name on `main`, and the version for a `v1.2.3` tag.
-
-```sh
-docker run --rm -p 8080:8080 \
-  -e DATABASE__URL=postgres://todo:todo@<host>:5432/todo \
-  ghcr.io/<user>/todo-dx-api
-```
-
-In the image the API runs as user `10001`, listens on `0.0.0.0:8080` and uses
-`env: production` (JSON logs). Give it `DATABASE__URL` for PostgreSQL, as
-compose does: containers share one PostgreSQL database
-(see [Database](#database)). Without it, the image falls back to SQLite in the
-`/data` volume, which is only good for a quick try. Override any setting with
-the environment variables above.
-
-The image's `HEALTHCHECK` calls `/health/ready`, so the container is reported
-unhealthy while its database is unreachable. If you change
-`SERVER__PORT`, override the health check to match.
-
 ## Benchmark
 
 [`bench.sh`](bench.sh) measures adding a todo with
@@ -706,7 +659,6 @@ backend/
                        one file per source file they cover
     Dockerfile         image of the backend
   ntex/                the same API on ntex and compio, laid out like axum/
-    Dockerfile         image of the ntex backend
 frontend/
   dioxus/              the web client
     src/main.rs        routes and components
@@ -720,16 +672,14 @@ frontend/
 fullstack/
   topcoat/             server-rendered page in one service (see its README)
     Dockerfile         image of the app
-docker-bake.hcl        the multi-platform build of the backend image
+docker-bake.hcl        the multi-platform build of the axum image
 compose.yaml           every implementation and PostgreSQL
 bench.sh               load test of every implementation (see benchmark.md)
 ```
 
 A new implementation goes next to the existing ones, for example
-`backend/<framework>/` with its own `Dockerfile`, and joins the
-workspace in the root `Cargo.toml`. It uses the same contract: the types from
-`contract/`, the schema in `db/`, and the configuration keys and health probes
-of the axum backend. A backend meets the
-[requirements for a backend](#requirements-for-a-backend), and gets a service in
-[`compose.yaml`](compose.yaml) named after its folder (`backend-<framework>`),
-which is what `bench.sh` starts.
+`backend/<framework>/` with its own `Dockerfile`, and joins the workspace in
+the root `Cargo.toml`. It uses the contract (the types in `contract/`, the
+schema in `db/`), and a backend does everything [Backend](#backend) marks as
+required. It gets a service in [`compose.yaml`](compose.yaml) named after its
+folder (`backend-<framework>`), which is what `bench.sh` starts.

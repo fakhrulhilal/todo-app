@@ -1,0 +1,38 @@
+# Built-in defaults, compiled into the binary. Copy this file to config.yaml
+# (or pass --config <file>) and change what you need.
+#
+# Precedence, lowest to highest:
+#   1. this file
+#   2. config.yaml in the working directory, or the file given by --config / CONFIG
+#   3. environment variables: the key in upper case, each dot as "__",
+#      e.g. server.port is SERVER__PORT
+#   4. command-line arguments: the key with each dot and underscore as "-",
+#      e.g. server.port is --server-port
+
+# local | production
+env: local
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  # Sites whose pages may call the API from a browser, comma-separated, e.g.
+  # https://<user>.github.io. "*" allows any site.
+  cors_origins: "*"
+
+database:
+  # sqlite://<path>   embedded SQLite-compatible database (Turso)
+  # sqlite::memory:   in-memory, lost on exit
+  # postgres://user:password@host:5432/dbname
+  url: sqlite://data/todo.db
+  # PostgreSQL connection pool size
+  max_connections: 10
+  # Apply the pending migrations from db/<database>/ on startup. Turn it off
+  # where something else owns the schema: compose.yaml applies
+  # db/postgres/schema.sql with pgschema before the apps start.
+  migration: true
+
+log:
+  # A level (trace, debug, info, warn, error) or filter directives such as "info,sqlx=warn"
+  level: info
+  # auto | text | json. auto = text when env is local, JSON lines in production
+  format: auto

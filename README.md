@@ -11,6 +11,7 @@ implementation, in a folder beside `backend/` and `frontend/`.
 | `contract/`          | The todo model and validation, compiled by every side                                                            | serde      |
 | `backend/axum/`      | The JSON API server, see [Backend](#backend)                                                                     | [axum](https://github.com/tokio-rs/axum) |
 | `backend/ntex/`      | The same API on the [compio](https://github.com/compio-rs/compio) runtime instead of tokio, see [ntex](#ntex)   | [ntex](https://ntex.rs) |
+| `backend/salvo/`     | The same API on Salvo, see [Salvo](#salvo)                                                                       | [Salvo](https://salvo.rs) |
 | `frontend/dioxus/`   | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
 | `frontend/leptos/`   | The same web client, styled with Tailwind CSS and [Rust/UI](https://www.rust-ui.com) components, with API data cached by [leptos-fetch](https://github.com/zakstucke/leptos-fetch). See its [README](frontend/leptos/README.md) | [Leptos](https://leptos.dev) |
 | `fullstack/topcoat/` | Server-rendered page in one binary, with no JSON API: the list is a Topcoat shard and the actions are procedures. See its [README](fullstack/topcoat/README.md) | [Topcoat](https://github.com/tokio-rs/topcoat) |
@@ -35,6 +36,7 @@ the repository root, and pick the part with `-p <package>`:
 | `contract/`          | `todo-contract`        |
 | `backend/axum/`      | `todo-backend`         |
 | `backend/ntex/`      | `todo-backend-ntex`    |
+| `backend/salvo/`     | `todo-backend-salvo`   |
 | `frontend/dioxus/`   | `todo-frontend`        |
 | `frontend/leptos/`   | `todo-frontend-leptos` |
 | `fullstack/topcoat/` | `todo-fullstack`       |
@@ -42,6 +44,7 @@ the repository root, and pick the part with `-p <package>`:
 ```sh
 cargo run -p todo-backend                    # the backend, on http://127.0.0.1:8080
 cargo run -p todo-backend-ntex -- -p 8090    # or the ntex backend, here on http://127.0.0.1:8090
+cargo run -p todo-backend-salvo -- -p 8091   # or the Salvo backend, here on http://127.0.0.1:8091
 dx serve -p todo-frontend --port 8081        # the frontend, on http://127.0.0.1:8081
 (cd frontend/leptos && trunk serve)          # the Leptos frontend, on http://127.0.0.1:8082
 ```
@@ -53,8 +56,8 @@ same version as the `dioxus` crate. The Leptos frontend needs
 `Trunk.toml` is.
 
 Todos are stored in `data/todo.db`, relative to where the backend is started
-(the repository root). Both backends default to that same file, so run one at
-a time or give one another `--database-url`. `cargo test` runs the contract,
+(the repository root). Every backend defaults to that same file, so run one at
+a time or give the others another `--database-url`. `cargo test` runs the contract,
 backend and Topcoat tests; the frontends only build for WebAssembly, so Cargo
 skips them unless asked.
 
@@ -253,7 +256,7 @@ something else owns the schema, as compose does (see [Schema](#schema)).
 
 1. Install [Rust](https://rustup.rs).
 2. Run the tests and build the release binary, here of the axum backend
-   (`-p todo-backend-ntex` for ntex):
+   (`-p todo-backend-ntex` for ntex, `-p todo-backend-salvo` for Salvo):
 
    ```sh
    cargo test -p todo-backend
@@ -300,10 +303,11 @@ IMAGE=ghcr.io/<user>/todo-dx-api TAG=1.0.0 docker buildx bake --push  # build an
 docker buildx bake --load                                             # into the local image store
 ```
 
-The ntex image is built directly:
+The ntex and Salvo images are built directly:
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 -f backend/ntex/Dockerfile .
+docker buildx build --platform linux/amd64,linux/arm64 -f backend/salvo/Dockerfile .
 ```
 
 A multi-platform build needs a `docker-container` builder
@@ -336,6 +340,34 @@ The ntex backend has the same layout as the axum one. Inside, it differs in:
   problem, where the axum backend serves it without the CORS header.
 - **Stopping:** SIGTERM (`docker stop`) lets open requests finish, for up to
   8 seconds; Ctrl+C stops at once.
+
+### Salvo
+
+The Salvo backend has the same layout as the axum one, on tokio and with the
+same sqlx and Turso code. Inside, it differs in:
+
+- **OpenAPI:** the document comes from utoipa's `#[utoipa::path]` on each
+  `#[handler]`, as in the other backends, not from Salvo's own salvo-oapi:
+  the contract is utoipa's output, and salvo-oapi writes a different one.
+- **Reading requests:** Salvo's extractors answer every failure with a bare
+  400. The handlers read the body, path and query through `src/api/extract.rs`
+  instead, which fails with axum's statuses: 400 for a body that is not JSON,
+  422 for JSON of the wrong shape, 415 for another content type, 413 above
+  2 MiB.
+- **Errors:** a handler's `ApiError` writes its own problem. Everything else
+  that ends without a body (an unknown path, a caught panic) is turned into one
+  by the service's catcher. Salvo's own 405 has no `Allow` header, so each
+  path ends in a fallback route that answers it with one.
+- **CORS:** salvo-cors serves an origin that `server.cors_origins` does not
+  list without the CORS header, as the axum backend does. A preflight is
+  answered with 204 where axum answers 200.
+- **HEAD:** Salvo's GET routes do not answer HEAD, so each one is registered
+  for HEAD as well.
+- **Paths:** a trailing slash is the same path: `/api/v1/todos/` is served
+  like `/api/v1/todos`. An empty segment is not: Salvo's router would skip it,
+  so a hoop answers `//api/v1/todos` with the 404 problem.
+- **Stopping:** SIGTERM (`docker stop`) and Ctrl+C both let open requests
+  finish, for up to 8 seconds.
 
 ## Frontend
 
@@ -453,7 +485,7 @@ implementations compatible with each other in both ways they can meet:
 - **Through the API:** a frontend talks to any backend, and sees the same
   todos whichever one answers.
 - **Directly through the database:** several apps share one database at the
-  same time, as the axum and ntex backends and the Topcoat app do in
+  same time, as the axum, ntex and Salvo backends and the Topcoat app do in
   [`compose.yaml`](compose.yaml). A todo added in one shows up in the others.
 
 SQLite cannot do the second: each container would have its own file, and the
@@ -549,22 +581,22 @@ one PostgreSQL database (`db`):
 - **Leptos**, on <http://localhost:8083> (<https://leptos.todo.local>): the
   Leptos client, built and served the same way.
 - **Topcoat**, on <http://localhost:8081>: the server-rendered app.
-- **Both backends**, axum and ntex, always run. Each has a domain of its own,
-  <https://axum.api.todo.local> and <https://ntex.api.todo.local>, and
-  publishes no port. One of them is the active backend: the clients call it,
+- **Every backend**, axum, ntex and Salvo, always runs. Each has a domain of
+  its own, <https://axum.api.todo.local>, <https://ntex.api.todo.local> and
+  <https://salvo.api.todo.local>, and publishes no port. One of them is the active backend: the clients call it,
   and <https://api.todo.local> points at it.
 - **API reference** (`backend-docs`), at `/docs/` on both client sites:
   [Scalar](https://scalar.com) renders `contract/openapi.json`, served at
   `/docs/openapi/todo.json`. Each client's Caddy passes `/docs` on to it, which
   is where their "API docs" link goes. Its server list has
-  `https://api.todo.local`, the active backend, and
-  `https://ntex.api.todo.local`.
+  `https://api.todo.local`, the active backend,
+  `https://ntex.api.todo.local` and `https://salvo.api.todo.local`.
 
 ```sh
 docker compose up -d
 ```
 
-That is the only step. The first run builds the five images from each
+That is the only step. The first run builds the six images from each
 part's `Dockerfile`, which takes a few minutes; later runs start at once.
 After changing the code, rebuild with `docker compose up -d --build`. Compose
 builds the images for the machine it runs on; to publish, see
@@ -659,6 +691,7 @@ backend/
                        one file per source file they cover
     Dockerfile         image of the backend
   ntex/                the same API on ntex and compio, laid out like axum/
+  salvo/               the same API on Salvo, laid out like axum/
 frontend/
   dioxus/              the web client
     src/main.rs        routes and components

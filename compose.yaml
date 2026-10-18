@@ -84,8 +84,27 @@ services:
     restart: unless-stopped
     labels:
       dev.orbstack.http-port: 8080
-      dev.orbstack.domains: ntex.api.todo.local,api.todo.local
+      dev.orbstack.domains: ntex.api.todo.local
       dev.orbstack.icon: https://avatars.githubusercontent.com/u/62459684
+
+  backend-salvo:
+    image: todo/backend/salvo:latest
+    container_name: todo.salvo
+    build:
+      context: .
+      dockerfile: backend/salvo/Dockerfile
+    environment:
+      DATABASE__URL: postgres://todo:${TODO_DB_PASSWORD:-todo}@db:5432/todo
+      # db-init owns the schema here.
+      DATABASE__MIGRATION: "false"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    labels:
+      dev.orbstack.http-port: 8080
+      dev.orbstack.domains: salvo.api.todo.local,api.todo.local
+      dev.orbstack.icon: https://salvo.rs/images/logo.svg
     networks:
       default:
         aliases:
@@ -123,6 +142,7 @@ services:
         {"servers": [
           {"url": "https://api.todo.local", "description": "Public API"},
           {"url": "https://ntex.api.todo.local", "description": "Public API on ntex"},
+          {"url": "https://salvo.api.todo.local", "description": "Public API on Salvo"},
         ]}
     ports:
       - "${TODO_DOCS_PORT:-8084}:8080"

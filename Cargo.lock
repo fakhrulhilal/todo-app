@@ -2805,6 +2805,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "health-checks"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3fdb72e0a9e6937cc40ce639492b69face2be52dbf4defd01f0c1f8a3af8d1c"
+dependencies = [
+ "async-trait",
+ "axum",
+ "futures-util",
+ "indexmap",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5676,6 +5691,7 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -6570,6 +6586,7 @@ dependencies = [
  "chrono",
  "clap",
  "figment",
+ "health-checks",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
@@ -6596,6 +6613,7 @@ dependencies = [
  "clap",
  "compio",
  "figment",
+ "health-checks",
  "ntex",
  "ntex-cors",
  "serde",
@@ -6619,6 +6637,7 @@ dependencies = [
  "chrono",
  "clap",
  "figment",
+ "health-checks",
  "reqwest 0.13.5",
  "salvo",
  "serde",
@@ -6683,6 +6702,7 @@ dependencies = [
  "chrono",
  "clap",
  "figment",
+ "health-checks",
  "reqwest 0.13.5",
  "serde",
  "serde_json",

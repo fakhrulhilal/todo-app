@@ -12,6 +12,9 @@ clap = { version = "4.6.7", features = ["derive", "env"] }
 # to epoll where io_uring is blocked (Docker's default seccomp profile) instead of every worker panicking at start.
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "polling"] }
 figment = { version = "0.10.19", features = ["yaml", "env"] }
+# Pulls in tokio with `time` only, which never runs: no registration gets the crate's tokio-based timeout
+# (see src/api/health.rs).
+health-checks = "0.1.0"
 # Every worker runs on compio. Nothing may enable `ntex/tokio`: tokio would win silently.
 ntex = { version = "4.3.0", features = ["compio"] }
 ntex-cors = "4.1.1"

@@ -171,10 +171,15 @@ curl 'localhost:8080/health/ready?format=json'
 }
 ```
 
-Checks are registered in each backend's `src/api.rs`. To add one, implement
-`HealthCheck` and register it by name. A check registered with
-`add_with_failure_status(..., HealthStatus::Degraded, ...)` degrades the
-service when it fails instead of making it unhealthy.
+Every app builds its probes on the
+[`health-checks`](https://crates.io/crates/health-checks) crate but keeps the
+JSON above, not the crate's own shape. Checks are registered in `health::checks`
+(`src/api/health.rs`, or `src/health.rs` in topcoat). To add one, implement the
+crate's `HealthCheck` and register it by name. A check registered with
+`HealthCheckRegistration::new(..).failure_status(HealthStatus::Degraded)`
+degrades the service when it fails instead of making it unhealthy. In ntex,
+wrap each check in `Timed` and do not set the crate's timeout: it needs tokio,
+which the compio runtime does not have.
 
 ### Configuration
 

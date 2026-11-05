@@ -11,10 +11,7 @@ use std::sync::Arc;
 use salvo::{affix_state, prelude::*, writing::Text};
 use utoipa::OpenApi;
 
-use self::{
-    health::{DatabaseCheck, HealthChecks},
-    problem::MethodNotAllowed,
-};
+use self::problem::MethodNotAllowed;
 use crate::store::Store;
 
 pub const OPENAPI_PATH: &str = "/api/openapi.json";
@@ -24,7 +21,7 @@ pub const OPENAPI_PATH: &str = "/api/openapi.json";
 #[derive(Clone)]
 pub struct AppState {
     pub store: Store,
-    pub health: Arc<HealthChecks>,
+    pub health: health_checks::HealthCheckService,
     /// The OpenAPI document, serialized once.
     openapi: Arc<str>,
 }
@@ -32,8 +29,8 @@ pub struct AppState {
 impl AppState {
     pub fn new(store: Store) -> Self {
         Self {
-            // What the readiness probe checks. Add one per dependency.
-            health: Arc::new(HealthChecks::new().add("database", DatabaseCheck(store.clone()))),
+            // What the readiness probe checks: see `health::checks`.
+            health: health::checks(store.clone()),
             store,
             openapi: ApiDoc::openapi()
                 .to_json()

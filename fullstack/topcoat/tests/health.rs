@@ -49,6 +49,8 @@ async fn format_json_adds_the_result_of_each_check() {
         async move {
             let response = request.send().await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
+            let content_type = response.headers()[CONTENT_TYPE].to_str().unwrap();
+            assert!(content_type.starts_with("application/json"), "{content_type}");
             response.json::<Value>().await.unwrap()
         }
     };

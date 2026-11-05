@@ -124,7 +124,9 @@ unhealthy while its database is unreachable. If you change
 
 The probes answer as the axum backend's do: `Healthy`, `Degraded` or
 `Unhealthy` as plain text (503 when `Unhealthy`), and the result of each check
-with `?format=json`.
+with `?format=json`. They are built on the
+[`health-checks`](https://crates.io/crates/health-checks) crate, with the JSON
+kept in the shared `status` + `results` shape.
 
 ## Layout
 

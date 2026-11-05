@@ -1,205 +1,32 @@
-//! Health probes, modelled on ASP.NET Core's health checks. They answer as
-//! the axum backend's do (see `contract/openapi.json`), without the OpenAPI
-//! annotations.
+//! Health probes on the `health-checks` crate (ASP.NET Core-style). They
+//! answer as the axum backend's do.
 //!
 //! A probe runs the registered checks and answers with the worst status as
-//! plain text: `Healthy`, `Degraded` or `Unhealthy`. `?format=json` adds the
-//! result of each check. Liveness runs no checks, so it only says the process
-//! serves HTTP; readiness runs the checks of what the service depends on.
+//! plain text: `Healthy`, `Degraded` or `Unhealthy` (503). `?format=json`
+//! adds the result of each check. Liveness runs no checks, so it only says
+//! the process serves HTTP; readiness runs the checks of what the service
+//! depends on.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::time::Duration;
 
-use async_trait::async_trait;
 use axum::{
     Router,
     extract::{Query, State},
-    http::{
-        StatusCode,
-        header::{CACHE_CONTROL, EXPIRES, PRAGMA},
-    },
-    response::{IntoResponse, Response},
     routing::get,
 };
-use serde::{Deserialize, Serialize};
+use health_checks::{
+    BoxError, HealthCheck, HealthCheckContext, HealthCheckOptions, HealthCheckRegistration,
+    HealthCheckResult, HealthCheckService, HealthChecks, HealthReport, HealthResponse,
+    ResponseWriter, async_trait,
+};
+use serde::Deserialize;
 
 use crate::store::Store;
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Ordered from worst to best, so the status of a report is the minimum of
-/// its checks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum HealthStatus {
-    /// Not working. The probe answers 503.
-    Unhealthy,
-    /// Working, but not as it should (slow, a fallback in use). Still 200.
-    Degraded,
-    Healthy,
-}
-
-impl HealthStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Unhealthy => "Unhealthy",
-            Self::Degraded => "Degraded",
-            Self::Healthy => "Healthy",
-        }
-    }
-
-    fn status_code(self) -> StatusCode {
-        match self {
-            Self::Healthy | Self::Degraded => StatusCode::OK,
-            Self::Unhealthy => StatusCode::SERVICE_UNAVAILABLE,
-        }
-    }
-}
-
-/// What one check found.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HealthCheckResult {
-    pub status: HealthStatus,
-    /// Safe to show to whoever can call the probe: no connection strings,
-    /// host names or raw error messages.
-    pub description: Option<String>,
-    /// Extra values worth showing, such as a queue length.
-    pub data: BTreeMap<String, serde_json::Value>,
-}
-
-impl HealthCheckResult {
-    pub fn new(status: HealthStatus, description: impl Into<String>) -> Self {
-        Self {
-            status,
-            description: Some(description.into()),
-            data: BTreeMap::new(),
-        }
-    }
-
-    pub fn healthy(description: impl Into<String>) -> Self {
-        Self::new(HealthStatus::Healthy, description)
-    }
-
-    pub fn degraded(description: impl Into<String>) -> Self {
-        Self::new(HealthStatus::Degraded, description)
-    }
-
-    pub fn unhealthy(description: impl Into<String>) -> Self {
-        Self::new(HealthStatus::Unhealthy, description)
-    }
-
-    pub fn with_data(
-        mut self,
-        key: impl Into<String>,
-        value: impl Into<serde_json::Value>,
-    ) -> Self {
-        self.data.insert(key.into(), value.into());
-        self
-    }
-}
-
-/// One thing the service depends on.
-#[async_trait]
-pub trait HealthCheck: Send + Sync + 'static {
-    /// `Err` carries a description of the failure and is reported with the
-    /// failure status the check was registered with.
-    async fn check(&self) -> Result<HealthCheckResult, String>;
-}
-
-struct Registration {
-    name: String,
-    failure_status: HealthStatus,
-    check: Arc<dyn HealthCheck>,
-}
-
-/// The registered checks.
-#[derive(Default)]
-pub struct HealthChecks {
-    registrations: Vec<Registration>,
-}
-
-impl HealthChecks {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Registers a check whose failure makes the service `Unhealthy`.
-    pub fn add(self, name: impl Into<String>, check: impl HealthCheck) -> Self {
-        self.add_with_failure_status(name, HealthStatus::Unhealthy, check)
-    }
-
-    /// Registers a check and what its failure means. Use `Degraded` for a
-    /// dependency the service can work without.
-    pub fn add_with_failure_status(
-        mut self,
-        name: impl Into<String>,
-        failure_status: HealthStatus,
-        check: impl HealthCheck,
-    ) -> Self {
-        self.registrations.push(Registration {
-            name: name.into(),
-            failure_status,
-            check: Arc::new(check),
-        });
-        self
-    }
-
-    /// Runs every check at the same time. One that fails, panics or takes
-    /// longer than the timeout gets its failure status.
-    pub async fn run(&self) -> HealthReport {
-        let running: Vec<_> = self
-            .registrations
-            .iter()
-            .map(|registration| {
-                let check = registration.check.clone();
-                tokio::spawn(
-                    async move { tokio::time::timeout(CHECK_TIMEOUT, check.check()).await },
-                )
-            })
-            .collect();
-
-        let mut results = BTreeMap::new();
-        for (registration, running) in self.registrations.iter().zip(running) {
-            let failed = |description: String| {
-                tracing::warn!(
-                    check = registration.name,
-                    description,
-                    "health check failed"
-                );
-                HealthCheckResult::new(registration.failure_status, description)
-            };
-            let result = match running.await {
-                Ok(Ok(Ok(result))) => result,
-                Ok(Ok(Err(description))) => failed(description),
-                Ok(Err(_)) => failed("The check timed out.".to_owned()),
-                Err(_) => failed("The check failed unexpectedly.".to_owned()),
-            };
-            results.insert(registration.name.clone(), result);
-        }
-        HealthReport::new(results)
-    }
-}
-
-/// The outcome of a probe.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HealthReport {
-    /// The worst status among the checks; `Healthy` when there are none.
-    pub status: HealthStatus,
-    /// One entry per check, by name.
-    pub results: BTreeMap<String, HealthCheckResult>,
-}
-
-impl HealthReport {
-    pub fn new(results: BTreeMap<String, HealthCheckResult>) -> Self {
-        let status = results
-            .values()
-            .map(|result| result.status)
-            .min()
-            .unwrap_or(HealthStatus::Healthy);
-        Self { status, results }
-    }
-}
-
 /// How a probe answers.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HealthFormat {
     /// The status alone, as plain text.
@@ -209,6 +36,41 @@ pub enum HealthFormat {
     Json,
 }
 
+impl HealthFormat {
+    fn options(self) -> HealthCheckOptions {
+        match self {
+            Self::Text => HealthCheckOptions::new(),
+            Self::Json => HealthCheckOptions::new().writer(ResponseWriter::custom(|report| {
+                ("application/json".to_owned(), contract_json(report))
+            })),
+        }
+    }
+}
+
+/// The JSON body in the shape every backend uses (`status` + `results`), not
+/// the crate's own. `exception` (the error chain) is left out: the probe may be
+/// public.
+fn contract_json(report: &HealthReport) -> String {
+    let results: serde_json::Map<String, serde_json::Value> = report
+        .entries
+        .iter()
+        .map(|(name, entry)| {
+            let data: serde_json::Map<String, serde_json::Value> = entry
+                .data
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            let result = serde_json::json!({
+                "status": entry.status,
+                "description": entry.description,
+                "data": data,
+            });
+            (name.clone(), result)
+        })
+        .collect();
+    serde_json::json!({ "status": report.status, "results": results }).to_string()
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
 pub struct HealthQuery {
     /// `json` for the result of each check. The status alone otherwise.
@@ -216,205 +78,59 @@ pub struct HealthQuery {
     pub format: HealthFormat,
 }
 
-fn respond(report: HealthReport, format: HealthFormat) -> Response {
-    let status = report.status.status_code();
-    let body = match format {
-        HealthFormat::Text => report.status.as_str().into_response(),
-        HealthFormat::Json => axum::Json(report).into_response(),
-    };
-    // A probe must be answered by this process, now: never from a cache.
-    let no_cache = [
-        (CACHE_CONTROL, "no-store, no-cache"),
-        (PRAGMA, "no-cache"),
-        (EXPIRES, "Thu, 01 Jan 1970 00:00:00 GMT"),
-    ];
-    (status, no_cache, body).into_response()
-}
-
 /// Checks that the database answers a trivial query.
 pub struct DatabaseCheck(pub Store);
 
 #[async_trait]
 impl HealthCheck for DatabaseCheck {
-    async fn check(&self) -> Result<HealthCheckResult, String> {
-        match self.0.ping().await {
-            Ok(()) => Ok(HealthCheckResult::healthy("The database answered.")),
+    async fn check(&self, ctx: &HealthCheckContext) -> Result<HealthCheckResult, BoxError> {
+        Ok(match self.0.ping().await {
+            Ok(()) => HealthCheckResult::healthy().with_description("The database answered."),
             Err(error) => {
-                // The cause stays in the log; the probe may be public.
+                // The cause stays in the log; the probe may be public, so it
+                // is not returned as an error (which would expose it).
                 tracing::warn!(error = %error, "database health check failed");
-                Err("The database did not answer.".to_owned())
+                HealthCheckResult::new(ctx.failure_status())
+                    .with_description("The database did not answer.")
             }
-        }
+        })
     }
 }
 
-/// `/health/live` and `/health/ready`, with the checks of what the app
-/// depends on.
+/// The checks of what the app depends on.
+pub fn checks(store: Store) -> HealthCheckService {
+    HealthChecks::builder()
+        .default_timeout(CHECK_TIMEOUT)
+        .add(HealthCheckRegistration::new("database", DatabaseCheck(store)))
+        .build()
+}
+
+/// `/health/live` and `/health/ready`.
 pub fn router(store: Store) -> Router {
-    let checks = HealthChecks::new().add("database", DatabaseCheck(store));
     Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
-        .with_state(Arc::new(checks))
+        .with_state(checks(store))
 }
 
 /// Healthy for as long as the server answers requests. Runs no checks.
-async fn live(Query(query): Query<HealthQuery>) -> Response {
-    respond(HealthReport::new(BTreeMap::new()), query.format)
+async fn live(
+    State(checks): State<HealthCheckService>,
+    Query(query): Query<HealthQuery>,
+) -> HealthResponse {
+    query
+        .format
+        .options()
+        .predicate(|_| false)
+        .execute(&checks)
+        .await
 }
 
 /// Runs every registered check and reports the worst status: `Healthy`,
 /// `Degraded` (still 200) or `Unhealthy` (503).
 async fn ready(
-    State(checks): State<Arc<HealthChecks>>,
+    State(checks): State<HealthCheckService>,
     Query(query): Query<HealthQuery>,
-) -> Response {
-    respond(checks.run().await, query.format)
-}
-
-#[cfg(test)]
-mod tests {
-    use axum::http::header::CONTENT_TYPE;
-    use serde_json::json;
-
-    use super::*;
-
-    struct Fixed(Result<HealthCheckResult, String>);
-
-    #[async_trait]
-    impl HealthCheck for Fixed {
-        async fn check(&self) -> Result<HealthCheckResult, String> {
-            self.0.clone()
-        }
-    }
-
-    struct Hangs;
-
-    #[async_trait]
-    impl HealthCheck for Hangs {
-        async fn check(&self) -> Result<HealthCheckResult, String> {
-            std::future::pending().await
-        }
-    }
-
-    struct Panics;
-
-    #[async_trait]
-    impl HealthCheck for Panics {
-        async fn check(&self) -> Result<HealthCheckResult, String> {
-            panic!("boom")
-        }
-    }
-
-    fn healthy() -> Fixed {
-        Fixed(Ok(HealthCheckResult::healthy("fine")))
-    }
-
-    #[tokio::test]
-    async fn no_checks_is_healthy() {
-        let report = HealthChecks::new().run().await;
-        assert_eq!(report.status, HealthStatus::Healthy);
-        assert!(report.results.is_empty());
-    }
-
-    #[tokio::test]
-    async fn the_report_has_the_worst_status_of_its_checks() {
-        let report = HealthChecks::new()
-            .add("database", healthy())
-            .add("cache", Fixed(Ok(HealthCheckResult::degraded("slow"))))
-            .run()
-            .await;
-        assert_eq!(report.status, HealthStatus::Degraded);
-        assert_eq!(report.results["database"].status, HealthStatus::Healthy);
-
-        let report = HealthChecks::new()
-            .add("database", Fixed(Err("down".to_owned())))
-            .add("cache", Fixed(Ok(HealthCheckResult::degraded("slow"))))
-            .add("search", healthy())
-            .run()
-            .await;
-        assert_eq!(report.status, HealthStatus::Unhealthy);
-        assert_eq!(
-            report.results["database"],
-            HealthCheckResult::unhealthy("down")
-        );
-    }
-
-    #[tokio::test]
-    async fn a_failure_gets_the_status_the_check_was_registered_with() {
-        let report = HealthChecks::new()
-            .add("database", healthy())
-            .add_with_failure_status(
-                "cache",
-                HealthStatus::Degraded,
-                Fixed(Err("down".to_owned())),
-            )
-            .run()
-            .await;
-        assert_eq!(report.status, HealthStatus::Degraded);
-        assert_eq!(report.status.status_code(), StatusCode::OK);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_check_that_hangs_or_panics_has_failed() {
-        let report = HealthChecks::new()
-            .add("slow", Hangs)
-            .add("broken", Panics)
-            .run()
-            .await;
-        assert_eq!(report.status, HealthStatus::Unhealthy);
-        assert_eq!(
-            report.results["slow"].description.as_deref(),
-            Some("The check timed out.")
-        );
-        assert_eq!(report.results["broken"].status, HealthStatus::Unhealthy);
-    }
-
-    #[tokio::test]
-    async fn the_answer_is_the_status_alone_unless_json_is_asked_for() {
-        let report = HealthChecks::new()
-            .add(
-                "database",
-                Fixed(Ok(
-                    HealthCheckResult::healthy("fine").with_data("latency_ms", 3)
-                )),
-            )
-            .add("queue", Fixed(Err("down".to_owned())))
-            .run()
-            .await;
-
-        let text = respond(report.clone(), HealthFormat::Text);
-        assert_eq!(text.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(text.headers()[CACHE_CONTROL], "no-store, no-cache");
-        assert!(
-            text.headers()[CONTENT_TYPE]
-                .to_str()
-                .unwrap()
-                .starts_with("text/plain")
-        );
-        let body = axum::body::to_bytes(text.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        assert_eq!(body, "Unhealthy");
-
-        let detail = respond(report, HealthFormat::Json);
-        assert_eq!(detail.status(), StatusCode::SERVICE_UNAVAILABLE);
-        let body = axum::body::to_bytes(detail.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
-            json!({
-                "status": "Unhealthy",
-                "results": {
-                    "database": {
-                        "status": "Healthy",
-                        "description": "fine",
-                        "data": { "latency_ms": 3 }
-                    },
-                    "queue": { "status": "Unhealthy", "description": "down", "data": {} }
-                }
-            })
-        );
-    }
+) -> HealthResponse {
+    query.format.options().execute(&checks).await
 }

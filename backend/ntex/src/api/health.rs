@@ -1,17 +1,30 @@
-//! Health probes, modelled on ASP.NET Core's health checks.
+//! Health probes, built on the `health-checks` crate (ASP.NET Core's health
+//! checks for Rust).
 //!
 //! A probe runs the registered checks and answers with the worst status as
 //! plain text: `Healthy`, `Degraded` or `Unhealthy`. `?format=json` adds the
 //! result of each check. Liveness runs no checks, so it only says the process
 //! serves HTTP; readiness runs the checks of what the service depends on.
+//!
+//! The crate runs the checks (concurrently, a panic or error counting as the
+//! registration's failure status) and sets the status code and no-cache
+//! headers. The JSON body keeps the shape of the shared contract (`status` +
+//! `results`), not the crate's own `UIResponseWriter` shape.
+//!
+//! The crate's own timeout uses `tokio::time`, which panics on compio, so no
+//! registration gets one: [`Timed`] bounds each check with ntex's timer
+//! instead.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
-use async_trait::async_trait;
+use health_checks::{
+    BoxError, HealthCheck, HealthCheckContext, HealthCheckOptions, HealthCheckRegistration,
+    HealthCheckService, HealthChecks, HealthResponse, ResponseWriter, async_trait,
+};
 use ntex::{
     http::{
         StatusCode,
-        header::{CACHE_CONTROL, EXPIRES, PRAGMA},
+        header::{HeaderName, HeaderValue},
     },
     time::{Seconds, timeout},
     web::{self, HttpResponse, types::Query},
@@ -29,6 +42,57 @@ pub const TAG: &str = "health";
 
 const CHECK_TIMEOUT: Seconds = Seconds(2);
 
+/// The checks the readiness probe runs. Add one per dependency, wrapped in
+/// [`Timed`].
+pub fn checks(store: Store) -> HealthCheckService {
+    HealthChecks::builder()
+        .add(HealthCheckRegistration::new(
+            "database",
+            Timed(DatabaseCheck(store)),
+        ))
+        .build()
+}
+
+/// Bounds a check with ntex's timer: one that takes longer than
+/// [`CHECK_TIMEOUT`] fails, and gets the failure status it was registered
+/// with.
+pub struct Timed<C>(pub C);
+
+#[async_trait]
+impl<C: HealthCheck> HealthCheck for Timed<C> {
+    async fn check(
+        &self,
+        ctx: &HealthCheckContext,
+    ) -> Result<health_checks::HealthCheckResult, BoxError> {
+        timeout(CHECK_TIMEOUT, self.0.check(ctx))
+            .await
+            .unwrap_or_else(|()| Err("A timeout occurred while running check.".into()))
+    }
+}
+
+/// Checks that the database answers a trivial query.
+pub struct DatabaseCheck(pub Store);
+
+#[async_trait]
+impl HealthCheck for DatabaseCheck {
+    async fn check(
+        &self,
+        _ctx: &HealthCheckContext,
+    ) -> Result<health_checks::HealthCheckResult, BoxError> {
+        match self.0.ping().await {
+            Ok(()) => Ok(health_checks::HealthCheckResult::healthy()
+                .with_description("The database answered.")),
+            Err(error) => {
+                // The cause stays in the log; the probe may be public.
+                tracing::warn!(error = %error, "database health check failed");
+                Err("The database did not answer.".into())
+            }
+        }
+    }
+}
+
+// The JSON body of a probe, as the contract (`contract/openapi.json`) has it.
+
 /// Ordered from worst to best, so the status of a report is the minimum of
 /// its checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
@@ -40,19 +104,12 @@ pub enum HealthStatus {
     Healthy,
 }
 
-impl HealthStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Unhealthy => "Unhealthy",
-            Self::Degraded => "Degraded",
-            Self::Healthy => "Healthy",
-        }
-    }
-
-    fn status_code(self) -> StatusCode {
-        match self {
-            Self::Healthy | Self::Degraded => StatusCode::OK,
-            Self::Unhealthy => StatusCode::SERVICE_UNAVAILABLE,
+impl From<health_checks::HealthStatus> for HealthStatus {
+    fn from(status: health_checks::HealthStatus) -> Self {
+        match status {
+            health_checks::HealthStatus::Unhealthy => Self::Unhealthy,
+            health_checks::HealthStatus::Degraded => Self::Degraded,
+            health_checks::HealthStatus::Healthy => Self::Healthy,
         }
     }
 }
@@ -70,118 +127,6 @@ pub struct HealthCheckResult {
     pub data: BTreeMap<String, serde_json::Value>,
 }
 
-impl HealthCheckResult {
-    pub fn new(status: HealthStatus, description: impl Into<String>) -> Self {
-        Self {
-            status,
-            description: Some(description.into()),
-            data: BTreeMap::new(),
-        }
-    }
-
-    pub fn healthy(description: impl Into<String>) -> Self {
-        Self::new(HealthStatus::Healthy, description)
-    }
-
-    pub fn degraded(description: impl Into<String>) -> Self {
-        Self::new(HealthStatus::Degraded, description)
-    }
-
-    pub fn unhealthy(description: impl Into<String>) -> Self {
-        Self::new(HealthStatus::Unhealthy, description)
-    }
-
-    pub fn with_data(
-        mut self,
-        key: impl Into<String>,
-        value: impl Into<serde_json::Value>,
-    ) -> Self {
-        self.data.insert(key.into(), value.into());
-        self
-    }
-}
-
-/// One thing the service depends on.
-#[async_trait]
-pub trait HealthCheck: Send + Sync + 'static {
-    /// `Err` carries a description of the failure and is reported with the
-    /// failure status the check was registered with.
-    async fn check(&self) -> Result<HealthCheckResult, String>;
-}
-
-struct Registration {
-    name: String,
-    failure_status: HealthStatus,
-    check: Arc<dyn HealthCheck>,
-}
-
-/// The registered checks.
-#[derive(Default)]
-pub struct HealthChecks {
-    registrations: Vec<Registration>,
-}
-
-impl HealthChecks {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Registers a check whose failure makes the service `Unhealthy`.
-    pub fn add(self, name: impl Into<String>, check: impl HealthCheck) -> Self {
-        self.add_with_failure_status(name, HealthStatus::Unhealthy, check)
-    }
-
-    /// Registers a check and what its failure means. Use `Degraded` for a
-    /// dependency the service can work without.
-    pub fn add_with_failure_status(
-        mut self,
-        name: impl Into<String>,
-        failure_status: HealthStatus,
-        check: impl HealthCheck,
-    ) -> Self {
-        self.registrations.push(Registration {
-            name: name.into(),
-            failure_status,
-            check: Arc::new(check),
-        });
-        self
-    }
-
-    /// Runs every check at the same time, as tasks on the calling worker. One
-    /// that fails, panics or takes longer than the timeout gets its failure
-    /// status.
-    pub async fn run(&self) -> HealthReport {
-        let running: Vec<_> = self
-            .registrations
-            .iter()
-            .map(|registration| {
-                let check = registration.check.clone();
-                ntex::rt::spawn(async move { timeout(CHECK_TIMEOUT, check.check()).await })
-            })
-            .collect();
-
-        let mut results = BTreeMap::new();
-        for (registration, running) in self.registrations.iter().zip(running) {
-            let failed = |description: String| {
-                tracing::warn!(
-                    check = registration.name,
-                    description,
-                    "health check failed"
-                );
-                HealthCheckResult::new(registration.failure_status, description)
-            };
-            let result = match running.await {
-                Ok(Ok(Ok(result))) => result,
-                Ok(Ok(Err(description))) => failed(description),
-                Ok(Err(())) => failed("The check timed out.".to_owned()),
-                Err(_) => failed("The check failed unexpectedly.".to_owned()),
-            };
-            results.insert(registration.name.clone(), result);
-        }
-        HealthReport::new(results)
-    }
-}
-
 /// The outcome of a probe.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct HealthReport {
@@ -191,14 +136,30 @@ pub struct HealthReport {
     pub results: BTreeMap<String, HealthCheckResult>,
 }
 
-impl HealthReport {
-    pub fn new(results: BTreeMap<String, HealthCheckResult>) -> Self {
-        let status = results
-            .values()
-            .map(|result| result.status)
-            .min()
-            .unwrap_or(HealthStatus::Healthy);
-        Self { status, results }
+impl From<&health_checks::HealthReport> for HealthReport {
+    fn from(report: &health_checks::HealthReport) -> Self {
+        let results = report
+            .entries
+            .iter()
+            .map(|(name, entry)| {
+                let result = HealthCheckResult {
+                    status: entry.status.into(),
+                    description: entry.description.clone(),
+                    // `exception` (the error chain) is left out: the probe may
+                    // be public.
+                    data: entry
+                        .data
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                };
+                (name.clone(), result)
+            })
+            .collect();
+        Self {
+            status: report.status.into(),
+            results,
+        }
     }
 }
 
@@ -213,6 +174,19 @@ pub enum HealthFormat {
     Json,
 }
 
+impl HealthFormat {
+    fn writer(self) -> ResponseWriter {
+        match self {
+            Self::Text => ResponseWriter::Plain,
+            Self::Json => ResponseWriter::custom(|report| {
+                let body = serde_json::to_string(&HealthReport::from(report))
+                    .expect("a health report always serializes");
+                ("application/json".to_owned(), body)
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct HealthQuery {
@@ -221,34 +195,41 @@ pub struct HealthQuery {
     pub format: HealthFormat,
 }
 
-fn respond(report: HealthReport, format: HealthFormat) -> HttpResponse {
-    let mut response = HttpResponse::builder(report.status.status_code());
-    // A probe must be answered by this process, now: never from a cache.
-    response
-        .header(CACHE_CONTROL, "no-store, no-cache")
-        .header(PRAGMA, "no-cache")
-        .header(EXPIRES, "Thu, 01 Jan 1970 00:00:00 GMT");
-    match format {
-        HealthFormat::Text => response
-            .content_type("text/plain; charset=utf-8")
-            .body(report.status.as_str()),
-        HealthFormat::Json => response.json(&report),
+/// The crate's framework-agnostic response as an ntex one.
+fn into_response(response: HealthResponse) -> HttpResponse {
+    let status =
+        StatusCode::from_u16(response.status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let mut builder = HttpResponse::builder(status);
+    for (name, value) in response.headers {
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            builder.header(HeaderName::from_static(name), value);
+        }
     }
+    builder.body(response.body)
 }
 
-/// Checks that the database answers a trivial query.
-pub struct DatabaseCheck(pub Store);
+/// Runs the checks `options` selects and answers in `format`. Status code
+/// (200, or 503 when `Unhealthy`) and no-cache headers come from the crate.
+async fn probe(
+    health: &HealthCheckService,
+    options: HealthCheckOptions,
+    format: HealthFormat,
+) -> HttpResponse {
+    into_response(options.writer(format.writer()).execute(health).await)
+}
 
-#[async_trait]
-impl HealthCheck for DatabaseCheck {
-    async fn check(&self) -> Result<HealthCheckResult, String> {
-        match self.0.ping().await {
-            Ok(()) => Ok(HealthCheckResult::healthy("The database answered.")),
-            Err(error) => {
-                // The cause stays in the log; the probe may be public.
-                tracing::warn!(error = %error, "database health check failed");
-                Err("The database did not answer.".to_owned())
-            }
+/// Logs every check that did not pass. The probe body has the safe
+/// description only; the log also has the error chain.
+fn log_failures(report: &health_checks::HealthReport) {
+    for (name, entry) in &report.entries {
+        if entry.status != health_checks::HealthStatus::Healthy {
+            tracing::warn!(
+                check = name,
+                status = %entry.status,
+                description = entry.description,
+                exception = entry.exception,
+                "health check failed"
+            );
         }
     }
 }
@@ -256,7 +237,7 @@ impl HealthCheck for DatabaseCheck {
 pub fn routes(config: &mut web::ServiceConfig<AppState>) {
     config.service(
         web::resource("/health/live")
-            .route(super::get().to(live))
+            .route(super::get().to_with_state(live))
             .default_service(web::to(method_not_allowed("GET,HEAD"))),
     );
     config.service(
@@ -282,8 +263,8 @@ pub fn routes(config: &mut web::ServiceConfig<AppState>) {
         (status = 400, description = "Invalid query", body = Problem, content_type = PROBLEM_JSON),
     )
 )]
-async fn live(query: Query<HealthQuery>) -> HttpResponse {
-    respond(HealthReport::new(BTreeMap::new()), query.format)
+async fn live(state: &AppState, _: (), query: Query<HealthQuery>) -> HttpResponse {
+    probe(&state.health, HealthCheckOptions::liveness(), query.format).await
 }
 
 /// Readiness probe
@@ -308,31 +289,30 @@ async fn live(query: Query<HealthQuery>) -> HttpResponse {
     )
 )]
 async fn ready(state: &AppState, _: (), query: Query<HealthQuery>) -> HttpResponse {
-    respond(state.health.run().await, query.format)
+    let report = state.health.check_health().await;
+    log_failures(&report);
+    into_response(
+        HealthCheckOptions::new()
+            .writer(query.format.writer())
+            .render(&report),
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use ntex::http::header::CONTENT_TYPE;
+    use ntex::http::header::{CACHE_CONTROL, CONTENT_TYPE};
     use ntex::web::test::read_body;
     use serde_json::json;
 
     use super::*;
 
-    struct Fixed(Result<HealthCheckResult, String>);
-
-    #[async_trait]
-    impl HealthCheck for Fixed {
-        async fn check(&self) -> Result<HealthCheckResult, String> {
-            self.0.clone()
-        }
-    }
+    type CrateResult = health_checks::HealthCheckResult;
 
     struct Hangs;
 
     #[async_trait]
     impl HealthCheck for Hangs {
-        async fn check(&self) -> Result<HealthCheckResult, String> {
+        async fn check(&self, _ctx: &HealthCheckContext) -> Result<CrateResult, BoxError> {
             std::future::pending().await
         }
     }
@@ -341,90 +321,43 @@ mod tests {
 
     #[async_trait]
     impl HealthCheck for Panics {
-        async fn check(&self) -> Result<HealthCheckResult, String> {
+        async fn check(&self, _ctx: &HealthCheckContext) -> Result<CrateResult, BoxError> {
             panic!("boom")
         }
     }
 
-    fn healthy() -> Fixed {
-        Fixed(Ok(HealthCheckResult::healthy("fine")))
-    }
-
-    #[ntex::test]
-    async fn no_checks_is_healthy() {
-        let report = HealthChecks::new().run().await;
-        assert_eq!(report.status, HealthStatus::Healthy);
-        assert!(report.results.is_empty());
-    }
-
-    #[ntex::test]
-    async fn the_report_has_the_worst_status_of_its_checks() {
-        let report = HealthChecks::new()
-            .add("database", healthy())
-            .add("cache", Fixed(Ok(HealthCheckResult::degraded("slow"))))
-            .run()
-            .await;
-        assert_eq!(report.status, HealthStatus::Degraded);
-        assert_eq!(report.results["database"].status, HealthStatus::Healthy);
-
-        let report = HealthChecks::new()
-            .add("database", Fixed(Err("down".to_owned())))
-            .add("cache", Fixed(Ok(HealthCheckResult::degraded("slow"))))
-            .add("search", healthy())
-            .run()
-            .await;
-        assert_eq!(report.status, HealthStatus::Unhealthy);
-        assert_eq!(
-            report.results["database"],
-            HealthCheckResult::unhealthy("down")
-        );
-    }
-
-    #[ntex::test]
-    async fn a_failure_gets_the_status_the_check_was_registered_with() {
-        let report = HealthChecks::new()
-            .add("database", healthy())
-            .add_with_failure_status(
-                "cache",
-                HealthStatus::Degraded,
-                Fixed(Err("down".to_owned())),
-            )
-            .run()
-            .await;
-        assert_eq!(report.status, HealthStatus::Degraded);
-        assert_eq!(report.status.status_code(), StatusCode::OK);
+    async fn report(health: HealthCheckService) -> HealthReport {
+        HealthReport::from(&health.check_health().await)
     }
 
     /// Waits out the real 2 second timeout: ntex's timer cannot be paused.
     #[ntex::test]
     async fn a_check_that_hangs_or_panics_has_failed() {
-        let report = HealthChecks::new()
-            .add("slow", Hangs)
-            .add("broken", Panics)
-            .run()
-            .await;
+        let health = HealthChecks::builder()
+            .add_check("slow", Timed(Hangs))
+            .add_check("broken", Timed(Panics))
+            .build();
+        let report = report(health).await;
         assert_eq!(report.status, HealthStatus::Unhealthy);
         assert_eq!(
             report.results["slow"].description.as_deref(),
-            Some("The check timed out.")
+            Some("A timeout occurred while running check.")
         );
         assert_eq!(report.results["broken"].status, HealthStatus::Unhealthy);
     }
 
     #[ntex::test]
     async fn the_answer_is_the_status_alone_unless_json_is_asked_for() {
-        let report = HealthChecks::new()
-            .add(
-                "database",
-                Fixed(Ok(
-                    HealthCheckResult::healthy("fine").with_data("latency_ms", 3)
-                )),
-            )
-            .add("queue", Fixed(Err("down".to_owned())))
-            .run()
-            .await;
+        let health = HealthChecks::builder()
+            .add_fn("database", || {
+                CrateResult::healthy()
+                    .with_description("fine")
+                    .with_data("latency_ms", 3)
+            })
+            .add_async_fn("queue", || async { Err("down".into()) })
+            .build();
 
-        let text = respond(report.clone(), HealthFormat::Text);
+        let text = probe(&health, HealthCheckOptions::new(), HealthFormat::Text).await;
         assert_eq!(text.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
             text.headers().get(CACHE_CONTROL).unwrap(),
@@ -440,8 +373,12 @@ mod tests {
         );
         assert_eq!(read_body(text).await, "Unhealthy");
 
-        let detail = respond(report, HealthFormat::Json);
+        let detail = probe(&health, HealthCheckOptions::new(), HealthFormat::Json).await;
         assert_eq!(detail.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            detail.headers().get(CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&read_body(detail).await).unwrap(),
             json!({
@@ -456,5 +393,22 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[ntex::test]
+    async fn a_degraded_service_still_answers_200() {
+        let health = HealthChecks::builder()
+            .add_fn("database", CrateResult::healthy)
+            .add(
+                HealthCheckRegistration::new(
+                    "cache",
+                    health_checks::AsyncFnCheck(|| async { Err("down".into()) }),
+                )
+                .failure_status(health_checks::HealthStatus::Degraded),
+            )
+            .build();
+        let response = probe(&health, HealthCheckOptions::new(), HealthFormat::Text).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(read_body(response).await, "Degraded");
     }
 }

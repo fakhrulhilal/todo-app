@@ -7,16 +7,14 @@ pub mod todos;
 
 use std::sync::Arc;
 
+use health_checks::HealthCheckService;
 use ntex::{
     http::{Method, StatusCode, header::LOCATION},
     web::{self, HttpResponse},
 };
 use utoipa::OpenApi;
 
-use self::{
-    health::{DatabaseCheck, HealthChecks},
-    problem::{ApiError, method_not_allowed, unknown_endpoint},
-};
+use self::problem::{ApiError, method_not_allowed, unknown_endpoint};
 use crate::store::Store;
 
 pub const OPENAPI_PATH: &str = "/api/openapi.json";
@@ -26,7 +24,7 @@ pub const OPENAPI_PATH: &str = "/api/openapi.json";
 #[derive(Clone)]
 pub struct AppState {
     pub store: Store,
-    pub health: Arc<HealthChecks>,
+    pub health: HealthCheckService,
     /// The OpenAPI document, serialized once.
     openapi: Arc<str>,
 }
@@ -34,8 +32,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(store: Store) -> Self {
         Self {
-            // What the readiness probe checks. Add one per dependency.
-            health: Arc::new(HealthChecks::new().add("database", DatabaseCheck(store.clone()))),
+            health: health::checks(store.clone()),
             store,
             openapi: ApiDoc::openapi()
                 .to_json()

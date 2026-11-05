@@ -9,6 +9,8 @@ async-trait = "0.1.92"
 chrono = { workspace = true, features = ["clock"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 figment = { version = "0.10.19", features = ["yaml", "env"] }
+# No framework feature: the crate renders a framework-agnostic response that api/health.rs writes into Salvo's.
+health-checks = "0.1.0"
 # No default features: they add cookies, the test client and aws-lc-rs, none of which this API uses.
 salvo = { version = "1.0.1", default-features = false, features = ["server", "server-handle", "http1", "http2", "fix-http1-request-uri", "cors", "catch-panic", "affix-state"] }
 serde.workspace = true

@@ -6,16 +6,11 @@ pub mod health;
 pub mod problem;
 pub mod todos;
 
-use std::sync::Arc;
-
 use axum::{Json, Router, middleware, response::Redirect, routing::get};
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 
-use self::{
-    health::{DatabaseCheck, HealthChecks},
-    problem::ApiError,
-};
+use self::problem::ApiError;
 use crate::store::Store;
 
 pub const OPENAPI_PATH: &str = "/api/openapi.json";
@@ -23,7 +18,7 @@ pub const OPENAPI_PATH: &str = "/api/openapi.json";
 #[derive(Clone)]
 pub struct AppState {
     pub store: Store,
-    pub health: Arc<HealthChecks>,
+    pub health: health_checks::HealthCheckService,
 }
 
 #[derive(OpenApi)]
@@ -42,8 +37,8 @@ pub fn router(store: Store) -> Router {
         .nest("/api/v1", todos::router())
         .merge(health::router())
         .with_state(AppState {
-            // What the readiness probe checks. Add one per dependency.
-            health: Arc::new(HealthChecks::new().add("database", DatabaseCheck(store.clone()))),
+            // What the readiness probe checks: see `health::checks`.
+            health: health::checks(store.clone()),
             store,
         })
         .split_for_parts();

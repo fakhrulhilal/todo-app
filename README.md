@@ -12,6 +12,7 @@ implementation, in a folder beside `backend/` and `frontend/`.
 | `backend/axum/`      | The JSON API server, see [Backend](#backend)                                                                     | [axum](https://github.com/tokio-rs/axum) |
 | `backend/ntex/`      | The same API on the [compio](https://github.com/compio-rs/compio) runtime instead of tokio, see [ntex](#ntex)   | [ntex](https://ntex.rs) |
 | `backend/salvo/`     | The same API on Salvo, see [Salvo](#salvo)                                                                       | [Salvo](https://salvo.rs) |
+| `backend/actix/`     | The same API on actix-web, see [actix-web](#actix-web)                                                           | [actix-web](https://actix.rs) |
 | `frontend/dioxus/`   | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
 | `frontend/leptos/`   | The same web client, styled with Tailwind CSS and [Rust/UI](https://www.rust-ui.com) components, with API data cached by [leptos-fetch](https://github.com/zakstucke/leptos-fetch). See its [README](frontend/leptos/README.md) | [Leptos](https://leptos.dev) |
 | `fullstack/topcoat/` | Server-rendered page in one binary, with no JSON API: the list is a Topcoat shard and the actions are procedures. See its [README](fullstack/topcoat/README.md) | [Topcoat](https://github.com/tokio-rs/topcoat) |
@@ -37,6 +38,7 @@ the repository root, and pick the part with `-p <package>`:
 | `backend/axum/`      | `todo-backend`         |
 | `backend/ntex/`      | `todo-backend-ntex`    |
 | `backend/salvo/`     | `todo-backend-salvo`   |
+| `backend/actix/`     | `todo-backend-actix`   |
 | `frontend/dioxus/`   | `todo-frontend`        |
 | `frontend/leptos/`   | `todo-frontend-leptos` |
 | `fullstack/topcoat/` | `todo-fullstack`       |
@@ -45,6 +47,7 @@ the repository root, and pick the part with `-p <package>`:
 cargo run -p todo-backend                    # the backend, on http://127.0.0.1:8080
 cargo run -p todo-backend-ntex -- -p 8090    # or the ntex backend, here on http://127.0.0.1:8090
 cargo run -p todo-backend-salvo -- -p 8091   # or the Salvo backend, here on http://127.0.0.1:8091
+cargo run -p todo-backend-actix -- -p 8092   # or the actix-web backend, here on http://127.0.0.1:8092
 dx serve -p todo-frontend --port 8081        # the frontend, on http://127.0.0.1:8081
 (cd frontend/leptos && trunk serve)          # the Leptos frontend, on http://127.0.0.1:8082
 ```
@@ -261,7 +264,8 @@ something else owns the schema, as compose does (see [Schema](#schema)).
 
 1. Install [Rust](https://rustup.rs).
 2. Run the tests and build the release binary, here of the axum backend
-   (`-p todo-backend-ntex` for ntex, `-p todo-backend-salvo` for Salvo):
+   (`-p todo-backend-ntex` for ntex, `-p todo-backend-salvo` for Salvo,
+   `-p todo-backend-actix` for actix-web):
 
    ```sh
    cargo test -p todo-backend
@@ -308,11 +312,12 @@ IMAGE=ghcr.io/<user>/todo-dx-api TAG=1.0.0 docker buildx bake --push  # build an
 docker buildx bake --load                                             # into the local image store
 ```
 
-The ntex and Salvo images are built directly:
+The ntex, Salvo and actix-web images are built directly:
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 -f backend/ntex/Dockerfile .
 docker buildx build --platform linux/amd64,linux/arm64 -f backend/salvo/Dockerfile .
+docker buildx build --platform linux/amd64,linux/arm64 -f backend/actix/Dockerfile .
 ```
 
 A multi-platform build needs a `docker-container` builder
@@ -373,6 +378,34 @@ same sqlx and Turso code. Inside, it differs in:
   so a hoop answers `//api/v1/todos` with the 404 problem.
 - **Stopping:** SIGTERM (`docker stop`) and Ctrl+C both let open requests
   finish, for up to 8 seconds.
+
+### actix-web
+
+The actix-web backend has the same layout as the axum one, on tokio and with
+the same sqlx and Turso code. Inside, it differs in:
+
+- **Runtime:** actix starts one worker thread per CPU, each with its own
+  single-threaded tokio runtime and its own copy of the `App`. The store and
+  the health checks are made once and shared by all of them as `web::Data`.
+- **Reading requests:** actix's `Json`, `Path` and `Query` extractors are
+  used as they are, with an error handler in each one's config
+  (`JsonConfig`, `PathConfig`, `QueryConfig`) that turns its failure into a
+  problem with axum's status: 400 for a body that is not JSON, 422 for JSON
+  of the wrong shape, 415 for another content type, 413 above 2 MiB.
+- **Errors:** `ApiError` is a `ResponseError` that renders a problem. Each path
+  is a resource whose default service answers other methods with 405 and
+  `Allow`; the app's default service answers unknown paths with 404. A
+  middleware adds `instance`, which needs the request, and turns any other
+  error response into a problem.
+- **CORS:** [actix-cors](https://github.com/actix/actix-extras) serves an
+  origin that `server.cors_origins` does not list without the CORS header, as
+  the axum backend does, but answers a preflight it refuses (another origin,
+  method or header) with a 400 problem where axum answers 200 without the
+  header. A browser blocks the request either way.
+- **HEAD:** actix's GET routes do not answer HEAD, so each one is registered
+  for both; actix leaves the body out.
+- **Stopping:** SIGTERM (`docker stop`) lets open requests finish, for up to
+  8 seconds; Ctrl+C stops at once.
 
 ## Frontend
 
@@ -490,8 +523,8 @@ implementations compatible with each other in both ways they can meet:
 - **Through the API:** a frontend talks to any backend, and sees the same
   todos whichever one answers.
 - **Directly through the database:** several apps share one database at the
-  same time, as the axum, ntex and Salvo backends and the Topcoat app do in
-  [`compose.yaml`](compose.yaml). A todo added in one shows up in the others.
+  same time, as the axum, ntex, Salvo and actix-web backends and the Topcoat
+  app do in [`compose.yaml`](compose.yaml). A todo added in one shows up in the others.
 
 SQLite cannot do the second: each container would have its own file, and the
 apps would drift apart. So in [`compose.yaml`](compose.yaml) every service gets
@@ -586,22 +619,24 @@ one PostgreSQL database (`db`):
 - **Leptos**, on <http://localhost:8083> (<https://leptos.todo.local>): the
   Leptos client, built and served the same way.
 - **Topcoat**, on <http://localhost:8081>: the server-rendered app.
-- **Every backend**, axum, ntex and Salvo, always runs. Each has a domain of
-  its own, <https://axum.api.todo.local>, <https://ntex.api.todo.local> and
-  <https://salvo.api.todo.local>, and publishes no port. One of them is the active backend: the clients call it,
+- **Every backend**, axum, ntex, Salvo and actix-web, always runs. Each has a
+  domain of its own, <https://axum.api.todo.local>,
+  <https://ntex.api.todo.local>, <https://salvo.api.todo.local> and
+  <https://actix.api.todo.local>, and publishes no port. One of them is the active backend: the clients call it,
   and <https://api.todo.local> points at it.
 - **API reference** (`backend-docs`), at `/docs/` on both client sites:
   [Scalar](https://scalar.com) renders `contract/openapi.json`, served at
   `/docs/openapi/todo.json`. Each client's Caddy passes `/docs` on to it, which
   is where their "API docs" link goes. Its server list has
   `https://api.todo.local`, the active backend,
-  `https://ntex.api.todo.local` and `https://salvo.api.todo.local`.
+  `https://ntex.api.todo.local`, `https://salvo.api.todo.local` and
+  `https://actix.api.todo.local`.
 
 ```sh
 docker compose up -d
 ```
 
-That is the only step. The first run builds the six images from each
+That is the only step. The first run builds the seven images from each
 part's `Dockerfile`, which takes a few minutes; later runs start at once.
 After changing the code, rebuild with `docker compose up -d --build`. Compose
 builds the images for the machine it runs on; to publish, see
@@ -697,6 +732,7 @@ backend/
     Dockerfile         image of the backend
   ntex/                the same API on ntex and compio, laid out like axum/
   salvo/               the same API on Salvo, laid out like axum/
+  actix/               the same API on actix-web, laid out like axum/
 frontend/
   dioxus/              the web client
     src/main.rs        routes and components

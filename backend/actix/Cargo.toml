@@ -1,0 +1,34 @@
+[package]
+name = "todo-backend-actix"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# No default features: compression (brotli, gzip, zstd, which build C code), cookies and the deprecated `compat`
+# APIs are not used. `macros` gives #[actix_web::main] and #[actix_web::test].
+actix-web = { version = "4.18.1", default-features = false, features = ["macros"] }
+actix-cors = "0.7.2"
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+chrono = { workspace = true, features = ["clock"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+figment = { version = "0.10.19", features = ["yaml", "env"] }
+# No framework feature: the crate renders a framework-agnostic response that api/health.rs copies into actix's.
+health-checks = "0.1.0"
+serde.workspace = true
+serde_json = "1.0.151"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "migrate", "macros", "uuid", "chrono"] }
+thiserror = "2.0.21"
+todo-contract = { workspace = true, features = ["openapi"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+turso = { version = "0.8.2", default-features = false }
+# The OpenAPI document comes from utoipa, as in the other backends.
+utoipa = { version = "6.0.0", features = ["chrono", "uuid"] }
+uuid = { workspace = true, features = ["v7"] }
+
+[dev-dependencies]
+# test-util: paused time, for the health check timeout test
+tokio = { version = "1.53.2", features = ["macros", "rt", "test-util"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
+figment = { version = "0.10.19", features = ["test"] }

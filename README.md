@@ -15,6 +15,7 @@ implementation, in a folder beside `backend/` and `frontend/`.
 | `backend/actix/`     | The same API on actix-web, see [actix-web](#actix-web)                                                           | [actix-web](https://actix.rs) |
 | `frontend/dioxus/`   | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
 | `frontend/leptos/`   | The same web client, styled with Tailwind CSS and [Rust/UI](https://www.rust-ui.com) components, with API data cached by [leptos-fetch](https://github.com/zakstucke/leptos-fetch). See its [README](frontend/leptos/README.md) | [Leptos](https://leptos.dev) |
+| `frontend/sycamore/` | The same web client in [Sycamore](https://sycamore.dev), with plain CSS. See its [README](frontend/sycamore/README.md) | [Sycamore](https://sycamore.dev) |
 | `fullstack/topcoat/` | Server-rendered page in one binary, with no JSON API: the list is a Topcoat shard and the actions are procedures. See its [README](fullstack/topcoat/README.md) | [Topcoat](https://github.com/tokio-rs/topcoat) |
 
 ```text
@@ -41,6 +42,7 @@ the repository root, and pick the part with `-p <package>`:
 | `backend/actix/`     | `todo-backend-actix`   |
 | `frontend/dioxus/`   | `todo-frontend`        |
 | `frontend/leptos/`   | `todo-frontend-leptos` |
+| `frontend/sycamore/` | `todo-frontend-sycamore` |
 | `fullstack/topcoat/` | `todo-fullstack`       |
 
 ```sh
@@ -50,12 +52,13 @@ cargo run -p todo-backend-salvo -- -p 8091   # or the Salvo backend, here on htt
 cargo run -p todo-backend-actix -- -p 8092   # or the actix-web backend, here on http://127.0.0.1:8092
 dx serve -p todo-frontend --port 8081        # the frontend, on http://127.0.0.1:8081
 (cd frontend/leptos && trunk serve)          # the Leptos frontend, on http://127.0.0.1:8082
+(cd frontend/sycamore && trunk serve)        # the Sycamore frontend, on http://127.0.0.1:8086
 ```
 
 The Dioxus frontend needs the
 [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/) (`dx`), the
-same version as the `dioxus` crate. The Leptos frontend needs
-[Trunk](https://trunkrs.dev) instead, run from its folder, where its
+same version as the `dioxus` crate. The Leptos and Sycamore frontends need
+[Trunk](https://trunkrs.dev) instead, run from their folder, where their
 `Trunk.toml` is.
 
 Todos are stored in `data/todo.db`, relative to where the backend is started
@@ -73,6 +76,7 @@ port 8080 is taken, move the API and tell the client:
 cargo run -p todo-backend -- --server-port 8090
 TODO_API_URL=http://127.0.0.1:8090 dx serve -p todo-frontend --port 8081
 (cd frontend/leptos && TODO_API_URL=http://127.0.0.1:8090 trunk serve)
+(cd frontend/sycamore && TODO_API_URL=http://127.0.0.1:8090 trunk serve)
 ```
 
 The "API docs" link opens `/docs/` on the site's own address. The clients do
@@ -482,6 +486,19 @@ and `dx` may make rustup download the nightly toolchain.
 
 The site expects to be served from the root of its domain.
 
+### Build `frontend/sycamore/`
+
+The same as [Leptos](#build-frontendleptos), from its own folder; nothing is
+downloaded but `wasm-bindgen` and `wasm-opt`:
+
+```sh
+cd frontend/sycamore
+TODO_API_URL=https://todo-api.example.com trunk build --release
+```
+
+The result is the static site in `frontend/sycamore/dist`. Have the host serve
+`index.html` for unknown paths.
+
 ### Deploy to GitHub Pages
 
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) builds and
@@ -618,6 +635,8 @@ one PostgreSQL database (`db`):
   Caddy's configuration is inside `compose.yaml`.
 - **Leptos**, on <http://localhost:8083> (<https://leptos.todo.local>): the
   Leptos client, built and served the same way.
+- **Sycamore**, on <http://localhost:8085> (<https://sycamore.todo.local>): the
+  Sycamore client, built and served the same way.
 - **Topcoat**, on <http://localhost:8081>: the server-rendered app.
 - **Every backend**, axum, ntex, Salvo and actix-web, always runs. Each has a
   domain of its own, <https://axum.api.todo.local>,
@@ -636,7 +655,7 @@ one PostgreSQL database (`db`):
 docker compose up -d
 ```
 
-That is the only step. The first run builds the seven images from each
+That is the only step. The first run builds the eight images from each
 part's `Dockerfile`, which takes a few minutes; later runs start at once.
 After changing the code, rebuild with `docker compose up -d --build`. Compose
 builds the images for the machine it runs on; to publish, see
@@ -647,6 +666,7 @@ builds the images for the machine it runs on; to publish, see
 | `TODO_WEB_PORT`     | Port the Dioxus site is published on    | `8080`  |
 | `TODO_TOPCOAT_PORT` | Port the Topcoat app is published on    | `8081`  |
 | `TODO_LEPTOS_PORT`  | Port the Leptos site is published on    | `8083`  |
+| `TODO_SYCAMORE_PORT` | Port the Sycamore site is published on | `8085`  |
 | `TODO_DB_PASSWORD`  | Password of the PostgreSQL user         | `todo`  |
 
 Todos are kept in the `db-data` volume; `docker compose down -v` deletes them.
@@ -742,6 +762,10 @@ frontend/
   leptos/              the same web client in Leptos (see its README)
     src/components/ui/ Rust/UI components, copied into the repository
     tailwind.css       Tailwind entry point and theme
+    Dockerfile         image of the frontend, served by Caddy
+  sycamore/            the same web client in Sycamore (see its README)
+    src/todos.rs       the list page
+    assets/            stylesheet
     Dockerfile         image of the frontend, served by Caddy
 fullstack/
   topcoat/             server-rendered page in one service (see its README)

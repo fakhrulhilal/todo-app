@@ -6575,6 +6575,126 @@ dependencies = [
 ]
 
 [[package]]
+name = "sycamore"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa76a5ba796aa25357d70adf027a171b9da18478cf1ab64a9ed0c06f8fca0e49"
+dependencies = [
+ "sycamore-core",
+ "sycamore-futures",
+ "sycamore-macro",
+ "sycamore-reactive",
+ "sycamore-web",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "sycamore-core"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fce3012a86a7d1ae7ca06db4d2172747a574904eed10808286071cef469f975"
+dependencies = [
+ "hashbrown 0.17.1",
+ "paste",
+ "sycamore-futures",
+ "sycamore-reactive",
+]
+
+[[package]]
+name = "sycamore-futures"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cf2809ed3dc0d527758ac27f403115054665a86ef8f7d326c500479c13e60a6"
+dependencies = [
+ "futures",
+ "js-sys",
+ "pin-project",
+ "sycamore-macro",
+ "sycamore-reactive",
+ "tokio",
+]
+
+[[package]]
+name = "sycamore-macro"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dc13361313005ba633fbf1f973c2f2a2e9f31cda659f102eb362361065b450b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "sycamore-view-parser",
+ "syn 3.0.7",
+]
+
+[[package]]
+name = "sycamore-reactive"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aca468d1209c2d1ae3059fb93aa005e67bbe1f17375a3c0a65135e98a1b58829"
+dependencies = [
+ "paste",
+ "slotmap",
+ "smallvec",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "sycamore-router"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6b53bacb0dfbb0665613b758ae24caf8ca8b221387077aee34bd76fefd7b77f"
+dependencies = [
+ "sycamore",
+ "sycamore-router-macro",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "sycamore-router-macro"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4912026c5892851b743a601d7d52275b325e0f2cd245f856f646259fbef06730"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.7",
+]
+
+[[package]]
+name = "sycamore-view-parser"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e11fcefa71d9fe1100c90903c837224848441712cd90f34570bb44327a5598ca"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.7",
+]
+
+[[package]]
+name = "sycamore-web"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af7fdad6ed1ec34d7e6a2699b4bf76059b3c56f97b9b94f1ab69edc9b04696f4"
+dependencies = [
+ "async-stream",
+ "futures",
+ "html-escape",
+ "js-sys",
+ "once_cell",
+ "paste",
+ "smallvec",
+ "sycamore-core",
+ "sycamore-futures",
+ "sycamore-macro",
+ "sycamore-reactive",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "symlink"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6948,6 +7068,20 @@ dependencies = [
  "todo-contract",
  "tw_merge",
  "uuid",
+]
+
+[[package]]
+name = "todo-frontend-sycamore"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "gloo-net 0.7.0",
+ "serde",
+ "sycamore",
+ "sycamore-router",
+ "todo-contract",
+ "uuid",
+ "web-sys",
 ]
 
 [[package]]

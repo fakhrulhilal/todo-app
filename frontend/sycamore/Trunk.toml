@@ -1,0 +1,9 @@
+# Run Trunk from this folder: `cd frontend/sycamore && trunk serve`.
+
+[build]
+target = "index.html"
+dist = "dist"
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8086

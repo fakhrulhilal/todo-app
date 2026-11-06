@@ -15,6 +15,7 @@ One todo app implemented several times in Rust, in a single Cargo workspace. All
 | `backend/actix/`     | `todo-backend-actix`   | Same API on actix-web 4 (tokio, one runtime per worker); extractor errors via `JsonConfig`/`PathConfig`/`QueryConfig` error handlers |
 | `frontend/dioxus/`   | `todo-frontend`        | WASM client, built with `dx` |
 | `frontend/leptos/`   | `todo-frontend-leptos` | WASM client, built with Trunk; Tailwind + Rust/UI (see its README) |
+| `frontend/sycamore/` | `todo-frontend-sycamore` | WASM client, built with Trunk; Sycamore 0.9 + sycamore-router, plain CSS (see its README) |
 | `fullstack/topcoat/` | `todo-fullstack`       | Server-rendered, no JSON API (see its README and `docs/web-ui.md`) |
 
 ## Commands
@@ -31,6 +32,7 @@ cargo run -p todo-backend-salvo -- -p 8091
 cargo run -p todo-backend-actix -- -p 8092
 dx serve -p todo-frontend --port 8081        # needs dioxus-cli matching the dioxus crate (0.7.10)
 (cd frontend/leptos && trunk serve)          # :8082; needs trunk 0.21.x
+(cd frontend/sycamore && trunk serve)        # :8086
 topcoat asset bundle --package todo-fullstack && cargo run -p todo-fullstack   # binary refuses to start without bundled assets; tests don't need them
 docker compose up -d --build                 # whole stack on PostgreSQL
 ./bench.sh all | ./bench.sh <name>           # oha load test; update benchmark.md after changing an implementation
@@ -47,8 +49,8 @@ Run against the compose stack, not against `cargo run`:
 ```sh
 docker compose up -d --wait
 cd tests && npm install && npx playwright install chromium
-npm test                       # all three clients, serially (shared DB)
-npm run test:leptos            # or test:dioxus / test:topcoat
+npm test                       # every client, serially (shared DB)
+npm run test:leptos            # or test:dioxus / test:sycamore / test:topcoat
 ```
 
 Locate elements by role/label, never CSS class (clients are styled differently). Each test creates and cleans up its own todos. A UI test exercises whichever backend is *active* in compose — before a full frontend test, switch the `api`/`backend` network aliases and the `api.todo.local` OrbStack label to the backend under test and verify it (README: "Switch the backend behind the clients").

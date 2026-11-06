@@ -1,0 +1,14 @@
+[package]
+name = "todo-frontend-sycamore"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+console_error_panic_hook = "0.1.7"
+gloo-net = { version = "0.7.0", default-features = false, features = ["http", "json"] }
+serde.workspace = true
+sycamore = { version = "0.9.4", features = ["suspense"] }
+sycamore-router = "0.9.4"
+todo-contract.workspace = true
+uuid.workspace = true
+web-sys = { version = "0.3", features = ["Event", "HtmlInputElement", "KeyboardEvent", "Location", "SubmitEvent", "UrlSearchParams"] }

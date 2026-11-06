@@ -6,8 +6,11 @@ import { expect, test, type Page } from '@playwright/test';
 // is a pressed button or a checkbox), so whether a todo is completed is read
 // from the filtered lists instead.
 
-/** Project metadata, set in playwright.config.ts. */
-type App = { api: boolean; filterInUrl: boolean };
+/**
+ * Project metadata, set in playwright.config.ts. `filterInHistory`: choosing a
+ * filter adds a history entry, rather than only replacing the address.
+ */
+type App = { api: boolean; filterInUrl: boolean; filterInHistory: boolean };
 
 function app(): App {
   return test.info().project.metadata as App;
@@ -160,4 +163,18 @@ test('the address keeps the filter', async ({ page }) => {
   await expect(page).toHaveURL(/filter=completed/);
   await page.reload();
   await expect(filter(page, 'Completed')).toHaveAttribute('aria-current', 'page');
+});
+
+test('Back and Forward move between filters', async ({ page }) => {
+  test.skip(!app().filterInHistory, 'choosing a filter replaces the address here, without a history entry');
+  await showFilter(page, 'Active');
+  await showFilter(page, 'Completed');
+
+  await page.goBack();
+  await expect(page).toHaveURL(/filter=active/);
+  await expect(filter(page, 'Active')).toHaveAttribute('aria-current', 'page');
+  await page.goBack();
+  await expect(filter(page, 'All')).toHaveAttribute('aria-current', 'page');
+  await page.goForward();
+  await expect(filter(page, 'Active')).toHaveAttribute('aria-current', 'page');
 });

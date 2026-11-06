@@ -1,10 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// The apps on the ports compose publishes them on (TODO_WEB_PORT,
-// TODO_LEPTOS_PORT and TODO_TOPCOAT_PORT). Under OrbStack the domains work too:
+// The apps on the ports compose publishes them on (TODO_[framework]_PORT
+// Under OrbStack the domains work too:
 //   DIOXUS_URL=https://todo.local LEPTOS_URL=https://leptos.todo.local npm test
 const dioxus = process.env.DIOXUS_URL ?? 'http://localhost:8080';
 const leptos = process.env.LEPTOS_URL ?? 'http://localhost:8083';
+const sycamore = process.env.SYCAMORE_URL ?? 'http://localhost:8085';
 const topcoat = process.env.TOPCOAT_URL ?? 'http://localhost:8081';
 
 export default defineConfig({
@@ -26,8 +27,9 @@ export default defineConfig({
   },
   projects: [
     // metadata: what the spec may expect of each app (see `App` in the spec).
-    { name: 'dioxus', use: { baseURL: dioxus }, metadata: { api: true, filterInUrl: true } },
-    { name: 'leptos', use: { baseURL: leptos }, metadata: { api: true, filterInUrl: true } },
-    { name: 'topcoat', use: { baseURL: topcoat }, metadata: { api: false, filterInUrl: true } },
+    { name: 'dioxus', use: { baseURL: dioxus }, metadata: { api: true, filterInUrl: true, filterInHistory: true } },
+    { name: 'leptos', use: { baseURL: leptos }, metadata: { api: true, filterInUrl: true, filterInHistory: true } },
+    { name: 'sycamore', use: { baseURL: sycamore }, metadata: { api: true, filterInUrl: true, filterInHistory: true } },
+    { name: 'topcoat', use: { baseURL: topcoat }, metadata: { api: false, filterInUrl: true, filterInHistory: false } },
   ],
 });

@@ -1,8 +1,14 @@
 # UI tests
 
-UI tests of the three todo pages, Dioxus, Leptos and Topcoat, driven by
+UI tests of the all todo pages, driven by
 [Playwright](https://playwright.dev) against the [compose stack](../README.md#run-everything-with-docker-compose).
-One spec covers all three: they use the same labels.
+One spec covers all of them: they use the same labels.
+
+Frontends:
+1. Dioxus
+2. Leptos
+3. Topcoat
+4. Sycamore
 
 ```sh
 docker compose up -d --wait   # from the repository root
@@ -10,7 +16,7 @@ cd tests
 npm install
 npx playwright install chromium
 npm test                      # every app
-npm run test:dioxus           # or one of them: test:leptos, test:topcoat
+npm run test:dioxus           # or one of them: test:leptos, test:sycamore, test:topcoat
 npm run report                # the HTML report of the last run
 ```
 
@@ -18,6 +24,7 @@ npm run report                # the HTML report of the last run
 |--------------|--------|-----------------------------|
 | `DIOXUS_URL` | Dioxus | `http://localhost:8080`     |
 | `LEPTOS_URL` | Leptos | `http://localhost:8083`     |
+| `SYCAMORE_URL` | Sycamore | `http://localhost:8085` |
 | `TOPCOAT_URL` | Topcoat | `http://localhost:8081`   |
 
 The defaults are the ports compose publishes the apps on. Under OrbStack
@@ -44,3 +51,7 @@ playwright-cli close
 Find elements by role and label (`getByRole('button', { name: 'Add' })`),
 which both clients share, never by CSS class: the two clients are styled
 differently.
+
+Not every app behaves the same in every respect: the project's `metadata` in
+`playwright.config.ts` says what the spec may expect of it (`api`,
+`filterInUrl`, `filterInHistory`), and a test that does not apply is skipped.

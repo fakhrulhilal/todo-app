@@ -13,6 +13,7 @@ implementation, in a folder beside `backend/` and `frontend/`.
 | `backend/ntex/`      | The same API on the [compio](https://github.com/compio-rs/compio) runtime instead of tokio, see [ntex](#ntex)   | [ntex](https://ntex.rs) |
 | `backend/salvo/`     | The same API on Salvo, see [Salvo](#salvo)                                                                       | [Salvo](https://salvo.rs) |
 | `backend/actix/`     | The same API on actix-web, see [actix-web](#actix-web)                                                           | [actix-web](https://actix.rs) |
+| `backend/rocket/`    | The same API on Rocket, with its configuration, state, fairings, catchers and test client, see [Rocket](#rocket) | [Rocket](https://rocket.rs) |
 | `frontend/dioxus/`   | The web client. It compiles to WebAssembly and static files, so it can be hosted on GitHub Pages or any other static host | [Dioxus](https://dioxuslabs.com) |
 | `frontend/leptos/`   | The same web client, styled with Tailwind CSS and [Rust/UI](https://www.rust-ui.com) components, with API data cached by [leptos-fetch](https://github.com/zakstucke/leptos-fetch). See its [README](frontend/leptos/README.md) | [Leptos](https://leptos.dev) |
 | `frontend/sycamore/` | The same web client in [Sycamore](https://sycamore.dev), with plain CSS. See its [README](frontend/sycamore/README.md) | [Sycamore](https://sycamore.dev) |
@@ -40,6 +41,7 @@ the repository root, and pick the part with `-p <package>`:
 | `backend/ntex/`      | `todo-backend-ntex`    |
 | `backend/salvo/`     | `todo-backend-salvo`   |
 | `backend/actix/`     | `todo-backend-actix`   |
+| `backend/rocket/`    | `todo-backend-rocket`  |
 | `frontend/dioxus/`   | `todo-frontend`        |
 | `frontend/leptos/`   | `todo-frontend-leptos` |
 | `frontend/sycamore/` | `todo-frontend-sycamore` |
@@ -50,6 +52,7 @@ cargo run -p todo-backend                    # the backend, on http://127.0.0.1:
 cargo run -p todo-backend-ntex -- -p 8090    # or the ntex backend, here on http://127.0.0.1:8090
 cargo run -p todo-backend-salvo -- -p 8091   # or the Salvo backend, here on http://127.0.0.1:8091
 cargo run -p todo-backend-actix -- -p 8092   # or the actix-web backend, here on http://127.0.0.1:8092
+cargo run -p todo-backend-rocket -- -p 8093  # or the Rocket backend, here on http://127.0.0.1:8093
 dx serve -p todo-frontend --port 8081        # the frontend, on http://127.0.0.1:8081
 (cd frontend/leptos && trunk serve)          # the Leptos frontend, on http://127.0.0.1:8082
 (cd frontend/sycamore && trunk serve)        # the Sycamore frontend, on http://127.0.0.1:8086
@@ -180,7 +183,7 @@ curl 'localhost:8080/health/ready?format=json'
 
 Every app builds its probes on the
 [`health-checks`](https://crates.io/crates/health-checks) crate but keeps the
-JSON above, not the crate's own shape. Checks are registered in `health::checks`
+JSON above, not the crate's own shape, except Rocket (see [Rocket](#rocket)). Checks are registered in `health::checks`
 (`src/api/health.rs`, or `src/health.rs` in topcoat). To add one, implement the
 crate's `HealthCheck` and register it by name. A check registered with
 `HealthCheckRegistration::new(..).failure_status(HealthStatus::Degraded)`
@@ -269,7 +272,7 @@ something else owns the schema, as compose does (see [Schema](#schema)).
 1. Install [Rust](https://rustup.rs).
 2. Run the tests and build the release binary, here of the axum backend
    (`-p todo-backend-ntex` for ntex, `-p todo-backend-salvo` for Salvo,
-   `-p todo-backend-actix` for actix-web):
+   `-p todo-backend-actix` for actix-web, `-p todo-backend-rocket` for Rocket):
 
    ```sh
    cargo test -p todo-backend
@@ -316,12 +319,13 @@ IMAGE=ghcr.io/<user>/todo-dx-api TAG=1.0.0 docker buildx bake --push  # build an
 docker buildx bake --load                                             # into the local image store
 ```
 
-The ntex, Salvo and actix-web images are built directly:
+The ntex, Salvo, actix-web and Rocket images are built directly:
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 -f backend/ntex/Dockerfile .
 docker buildx build --platform linux/amd64,linux/arm64 -f backend/salvo/Dockerfile .
 docker buildx build --platform linux/amd64,linux/arm64 -f backend/actix/Dockerfile .
+docker buildx build --platform linux/amd64,linux/arm64 -f backend/rocket/Dockerfile .
 ```
 
 A multi-platform build needs a `docker-container` builder
@@ -410,6 +414,57 @@ the same sqlx and Turso code. Inside, it differs in:
   for both; actix leaves the body out.
 - **Stopping:** SIGTERM (`docker stop`) lets open requests finish, for up to
   8 seconds; Ctrl+C stops at once.
+
+### Rocket
+
+The Rocket backend has the same layout as the axum one, on tokio and with the
+same sqlx and Turso code. Rocket brings much of what the others assemble, and
+it is used where it does the job; the rest is as in the other backends:
+
+- **Configuration:** our settings are read as everywhere else, then handed to
+  Rocket as its own figment: its settings (address, port, the `json` limit of
+  2 MiB, shutdown) are set from ours, and ours sit under `app`, where the
+  fairings read them. `Rocket.toml` and `ROCKET_*` variables are not read.
+  `server.host` must be an IP address, as Rocket's `address` is.
+- **Database:** Rocket's [`rocket_db_pools`](https://api.rocket.rs/v0.5/rocket_db_pools/)
+  is on sqlx 0.7 and has no Turso driver, so the store is the shared
+  `TodoStore`. An ignite fairing opens it, as `rocket_db_pools` opens its
+  pools, and hands it to the handlers as managed state (`&State<AppState>`);
+  the launch fails when the database does not answer.
+- **Reading requests:** the body goes through Rocket's own `Json` guard, whose
+  statuses already match axum's (400, 422, 413 above 2 MiB); `src/api/extract.rs`
+  adds the 415 for another content type. An id that is not a UUID is a 400
+  (Rocket's `Uuid` parameter, taken as a `Result`), and so is an unknown
+  `?status=` or `?format=`.
+- **Errors:** `ApiError` and `Problem` are `Responder`s. A failed guard leaves
+  its problem in the request-local cache, and a catcher renders it; the 404
+  catcher answers unknown paths. Rocket has no 405 (another method is a
+  404), so each path ends in a route per other method that answers 405 with
+  `Allow`.
+- **Health:** the crate is used as its guide shows. Two checks: `self`,
+  always Healthy, and `database`, tagged `dependency`, which is the crate's own
+  `PostgresCheck` or `SqliteCheck` for `database.url` (a new connection per
+  probe, not the store's). `/health/live` runs `self`, `/health/ready` the
+  `dependency` checks. `?format=json` answers the crate's JSON
+  (HealthChecks.UI's `status`, `totalDuration`, `entries`), not the shared
+  `status` + `results` shape; the OpenAPI document still describes the shared
+  one, to stay equal to the contract.
+- **CORS:** Rocket has none built in, so a response fairing does what
+  tower-http does for axum: a preflight is answered with 200, and an origin
+  that `server.cors_origins` does not list is served without the CORS header.
+- **Logging:** Rocket's own log lines are off; a fairing logs each request in
+  our format. `log.level: info,rocket=info` brings Rocket's back.
+- **Headers:** Rocket's Shield adds `X-Content-Type-Options`,
+  `X-Frame-Options` and `Permissions-Policy` to every response; a created todo
+  also gets `Location`.
+- **HEAD:** Rocket answers HEAD with the GET route and leaves the body out.
+- **Paths:** Rocket matches a path by its non-empty segments, so a trailing
+  slash or an empty segment leads to the same route: `/api/v1/todos/` and
+  `//api/v1/todos` are served like `/api/v1/todos`.
+- **Tests:** they use Rocket's local client (`rocket::local::asynchronous`),
+  which runs every route, guard, catcher and fairing without a socket.
+- **Stopping:** SIGTERM (`docker stop`) and Ctrl+C both let open requests
+  finish, for up to 8 seconds (Rocket's `grace` and `mercy`).
 
 ## Frontend
 
@@ -540,8 +595,8 @@ implementations compatible with each other in both ways they can meet:
 - **Through the API:** a frontend talks to any backend, and sees the same
   todos whichever one answers.
 - **Directly through the database:** several apps share one database at the
-  same time, as the axum, ntex, Salvo and actix-web backends and the Topcoat
-  app do in [`compose.yaml`](compose.yaml). A todo added in one shows up in the others.
+  same time, as the axum, ntex, Salvo, actix-web and Rocket backends and the
+  Topcoat app do in [`compose.yaml`](compose.yaml). A todo added in one shows up in the others.
 
 SQLite cannot do the second: each container would have its own file, and the
 apps would drift apart. So in [`compose.yaml`](compose.yaml) every service gets
@@ -638,24 +693,25 @@ one PostgreSQL database (`db`):
 - **Sycamore**, on <http://localhost:8085> (<https://sycamore.todo.local>): the
   Sycamore client, built and served the same way.
 - **Topcoat**, on <http://localhost:8081>: the server-rendered app.
-- **Every backend**, axum, ntex, Salvo and actix-web, always runs. Each has a
-  domain of its own, <https://axum.api.todo.local>,
-  <https://ntex.api.todo.local>, <https://salvo.api.todo.local> and
-  <https://actix.api.todo.local>, and publishes no port. One of them is the active backend: the clients call it,
+- **Every backend**, axum, ntex, Salvo, actix-web and Rocket, always runs.
+  Each has a domain of its own, <https://axum.api.todo.local>,
+  <https://ntex.api.todo.local>, <https://salvo.api.todo.local>,
+  <https://actix.api.todo.local> and <https://rocket.api.todo.local>, and
+  publishes no port. One of them is the active backend: the clients call it,
   and <https://api.todo.local> points at it.
 - **API reference** (`backend-docs`), at `/docs/` on both client sites:
   [Scalar](https://scalar.com) renders `contract/openapi.json`, served at
   `/docs/openapi/todo.json`. Each client's Caddy passes `/docs` on to it, which
   is where their "API docs" link goes. Its server list has
   `https://api.todo.local`, the active backend,
-  `https://ntex.api.todo.local`, `https://salvo.api.todo.local` and
-  `https://actix.api.todo.local`.
+  `https://ntex.api.todo.local`, `https://salvo.api.todo.local`,
+  `https://actix.api.todo.local` and `https://rocket.api.todo.local`.
 
 ```sh
 docker compose up -d
 ```
 
-That is the only step. The first run builds the eight images from each
+That is the only step. The first run builds the nine images from each
 part's `Dockerfile`, which takes a few minutes; later runs start at once.
 After changing the code, rebuild with `docker compose up -d --build`. Compose
 builds the images for the machine it runs on; to publish, see
@@ -753,6 +809,7 @@ backend/
   ntex/                the same API on ntex and compio, laid out like axum/
   salvo/               the same API on Salvo, laid out like axum/
   actix/               the same API on actix-web, laid out like axum/
+  rocket/              the same API on Rocket, laid out like axum/
 frontend/
   dioxus/              the web client
     src/main.rs        routes and components

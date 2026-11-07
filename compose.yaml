@@ -146,8 +146,27 @@ services:
     restart: unless-stopped
     labels:
       dev.orbstack.http-port: 8080
-      dev.orbstack.domains: actix.api.todo.local,api.todo.local
+      dev.orbstack.domains: actix.api.todo.local
       dev.orbstack.icon: https://actix.rs/img/logo.png
+
+  backend-rocket:
+    image: todo/backend/rocket:latest
+    container_name: todo.rocket
+    build:
+      context: .
+      dockerfile: backend/rocket/Dockerfile
+    environment:
+      DATABASE__URL: postgres://todo:${TODO_DB_PASSWORD:-todo}@db:5432/todo
+      # db-init owns the schema here.
+      DATABASE__MIGRATION: "false"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    labels:
+      dev.orbstack.http-port: 8080
+      dev.orbstack.domains: rocket.api.todo.local,api.todo.local
+      dev.orbstack.icon: https://rocket.rs/images/logo-boxed.png
     networks:
       default:
         aliases:
@@ -187,6 +206,7 @@ services:
           {"url": "https://ntex.api.todo.local", "description": "Public API on ntex"},
           {"url": "https://salvo.api.todo.local", "description": "Public API on Salvo"},
           {"url": "https://actix.api.todo.local", "description": "Public API on actix-web"},
+          {"url": "https://rocket.api.todo.local", "description": "Public API on Rocket"},
         ]}
     ports:
       - "${TODO_DOCS_PORT:-8084}:8080"
